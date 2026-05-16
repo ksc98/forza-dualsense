@@ -1,0 +1,43 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Package
+        id: pkg
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          $name = "forza-dualsense-$tag-x86_64-pc-windows-msvc"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/forza-dualsense.exe -Destination $name/
+          Copy-Item README.md -Destination $name/
+          Compress-Archive -Path "$name/*" -DestinationPath "$name.zip"
+          "asset=$name.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.pkg.outputs.asset }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

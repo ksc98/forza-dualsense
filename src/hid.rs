@@ -1,0 +1,146 @@
+//! DualSense HID output report.
+//!
+//! Layout matches Sony's public DualSense report format. We only ever
+//! set the trigger bits in the valid-flag byte so Steam Input keeps
+//! owning the rumble motors.
+
+use anyhow::{anyhow, Context, Result};
+use hidapi::{HidApi, HidDevice};
+
+use crate::triggers::Effect;
+
+pub const VID_SONY: u16 = 0x054C;
+pub const PID_DUALSENSE: u16 = 0x0CE6;
+pub const PID_DUALSENSE_EDGE: u16 = 0x0DF2;
+
+/// Only flip the two trigger bits: bit 2 = R trigger effect, bit 3 = L
+/// trigger effect. Leaving bits 0/1 cleared keeps Steam's rumble bytes
+/// untouched.
+const FLAGS_TRIGGERS_ONLY: u8 = 0x04 | 0x08;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    Usb,
+    Bluetooth,
+}
+
+impl Transport {
+    pub fn report_size(self) -> usize {
+        match self {
+            Transport::Usb => 64,
+            Transport::Bluetooth => 78,
+        }
+    }
+
+    pub fn report_id(self) -> u8 {
+        match self {
+            Transport::Usb => 0x02,
+            Transport::Bluetooth => 0x31,
+        }
+    }
+
+    /// Byte offset (inside the buffer we hand to hidapi, which already
+    /// includes a leading report-id byte) of the flags byte.
+    fn flags_off(self) -> usize {
+        match self {
+            // [report_id, flags, valid_flag1, ...]
+            Transport::Usb => 1,
+            // [report_id, ???, flags, valid_flag1, ...]
+            Transport::Bluetooth => 2,
+        }
+    }
+
+    fn right_trigger_off(self) -> usize {
+        match self {
+            Transport::Usb => 11,
+            Transport::Bluetooth => 12,
+        }
+    }
+
+    fn left_trigger_off(self) -> usize {
+        match self {
+            Transport::Usb => 22,
+            Transport::Bluetooth => 23,
+        }
+    }
+}
+
+pub struct DualSense {
+    device: HidDevice,
+    transport: Transport,
+    pub serial: String,
+}
+
+impl DualSense {
+    pub fn open() -> Result<Self> {
+        let api = HidApi::new().context("failed to init hidapi")?;
+        for info in api.device_list() {
+            if info.vendor_id() != VID_SONY {
+                continue;
+            }
+            if !matches!(info.product_id(), PID_DUALSENSE | PID_DUALSENSE_EDGE) {
+                continue;
+            }
+            let device = info
+                .open_device(&api)
+                .context("found DualSense but failed to open it (HidHide blocking? permissions?)")?;
+            // Non-blocking writes — important on Bluetooth where the
+            // device would otherwise stall waiting for an input report.
+            device.set_blocking_mode(false).ok();
+
+            // Heuristic: USB reports start with 0x01, Bluetooth with
+            // 0x31. We probe with a short read; if it fails or returns 0
+            // bytes we default to USB which is by far the common case.
+            let transport = probe_transport(&device);
+
+            let serial = info.serial_number().unwrap_or("").to_string();
+            return Ok(Self { device, transport, serial });
+        }
+        Err(anyhow!("DualSense gamepad interface not found"))
+    }
+
+    pub fn transport(&self) -> Transport {
+        self.transport
+    }
+
+    pub fn write_triggers(&self, l2: &Effect, r2: &Effect) -> Result<()> {
+        let size = self.transport.report_size();
+        let mut buf = vec![0u8; size];
+        buf[0] = self.transport.report_id();
+        buf[self.transport.flags_off()] = FLAGS_TRIGGERS_ONLY;
+
+        let r_off = self.transport.right_trigger_off();
+        let l_off = self.transport.left_trigger_off();
+
+        let (rmode, rparams) = r2.to_hid_bytes();
+        buf[r_off] = rmode;
+        buf[r_off + 1..r_off + 11].copy_from_slice(&rparams);
+
+        let (lmode, lparams) = l2.to_hid_bytes();
+        buf[l_off] = lmode;
+        buf[l_off + 1..l_off + 11].copy_from_slice(&lparams);
+
+        if self.transport == Transport::Bluetooth {
+            // CRC32 over [0xA2] || buf[0..74], stored at bytes 74..78.
+            let mut hasher = crc32fast::Hasher::new();
+            hasher.update(&[0xA2]);
+            hasher.update(&buf[0..74]);
+            let crc = hasher.finalize().to_le_bytes();
+            buf[74..78].copy_from_slice(&crc);
+        }
+
+        self.device.write(&buf).context("HID write failed")?;
+        Ok(())
+    }
+}
+
+fn probe_transport(device: &HidDevice) -> Transport {
+    let mut buf = [0u8; 78];
+    match device.read_timeout(&mut buf, 50) {
+        Ok(n) if n > 0 => match buf[0] {
+            0x31 => Transport::Bluetooth,
+            _ => Transport::Usb,
+        },
+        _ => Transport::Usb,
+    }
+}
