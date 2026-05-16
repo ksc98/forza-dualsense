@@ -1,0 +1,100 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (must look like vX.Y.Z and match Cargo.toml version)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+# Block two releases from running at once (would race the tag/asset upload).
+concurrency:
+  group: release-${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Resolve tag
+        id: tag
+        shell: pwsh
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            $t = $env:INPUT_TAG
+          } else {
+            $t = $env:REF_NAME
+          }
+          if (-not ($t -match '^v\d+\.\d+\.\d+$')) {
+            Write-Error "tag must look like 'vX.Y.Z', got '$t'"
+            exit 1
+          }
+          "tag=$t"                       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "version=$($t.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Verify Cargo.toml version matches tag
+        shell: pwsh
+        env:
+          EXPECTED: ${{ steps.tag.outputs.version }}
+        run: |
+          $cargo = Get-Content Cargo.toml -Raw
+          if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
+            Write-Error "Could not parse 'version' from Cargo.toml"
+            exit 1
+          }
+          $found = $Matches[1]
+          Write-Host "Cargo.toml version: $found"
+          Write-Host "Tag version       : $env:EXPECTED"
+          if ($found -ne $env:EXPECTED) {
+            Write-Error "Cargo.toml version ($found) does not match release tag ($env:EXPECTED). Bump Cargo.toml on main and re-dispatch."
+            exit 1
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Package
+        id: pkg
+        shell: pwsh
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          $name = "forza-dualsense-$env:TAG-x86_64-pc-windows-msvc"
+          New-Item -ItemType Directory -Path $name | Out-Null
+          Copy-Item target/x86_64-pc-windows-msvc/release/forza-dualsense.exe -Destination $name/
+          Copy-Item README.md       -Destination $name/
+          Copy-Item LICENSE-MIT     -Destination $name/
+          Copy-Item LICENSE-APACHE  -Destination $name/
+          Compress-Archive -Path "$name/*" -DestinationPath "$name.zip"
+          "asset=$name.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          files: ${{ steps.pkg.outputs.asset }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true

@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Forza DualSense</title>
+<style>
+  :root {
+    --bg: #0c0f12;
+    --panel: #161a1f;
+    --panel2: #1d2229;
+    --line: #262d36;
+    --accent: #00b4ff;
+    --ok: #50dc78;
+    --bad: #ff5a5a;
+    --text: #e7edf2;
+    --dim: #8b94a3;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 12px 20px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+  header h1 {
+    font-size: 18px;
+    margin: 0;
+    color: var(--accent);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  header .version { color: var(--dim); font-size: 12px; }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+  .dot.ok { background: var(--ok); }
+  main {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 16px;
+    padding: 16px 20px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .card h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    font-weight: 600;
+  }
+  .row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .row label { width: 110px; color: var(--dim); font-size: 12px; }
+  .plots .plot {
+    background: var(--panel2);
+    border-radius: 8px;
+    padding: 10px 12px 6px;
+    margin-bottom: 10px;
+  }
+  .plots .plot:last-child { margin-bottom: 0; }
+  .plots .plot .hd {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .plots .plot .hd .lbl {
+    font-size: 11px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .plots .plot .hd .val {
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 16px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .plots canvas { display: block; width: 100%; height: 90px; }
+  .legend { font-size: 10px; color: var(--dim); display: flex; gap: 10px; }
+  .legend span::before {
+    content: "■";
+    margin-right: 4px;
+  }
+  .legend .l-thr::before { color: var(--ok); }
+  .legend .l-brk::before { color: var(--bad); }
+  .bar {
+    flex: 1;
+    height: 12px;
+    background: var(--panel2);
+    border-radius: 6px;
+    overflow: hidden;
+    position: relative;
+  }
+  .fill { height: 100%; transition: width 60ms linear; }
+  .fill.brake { background: var(--bad); }
+  .fill.accel { background: var(--accent); }
+  .fill.rpm   { background: linear-gradient(90deg, #50dc78 0%, #ffce40 70%, var(--bad) 100%); }
+  .value { width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
+  .triggers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .trig {
+    background: var(--panel2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 12px;
+  }
+  .trig .label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.6px; }
+  .trig .mode  { font-size: 16px; margin-top: 4px; font-weight: 600; }
+  .trig .params { font-size: 12px; color: var(--dim); margin-top: 4px; font-family: ui-monospace, Menlo, monospace; }
+  details summary { cursor: pointer; color: var(--dim); margin-bottom: 6px; }
+  details[open] summary { color: var(--text); }
+  .settings .group { margin-bottom: 16px; }
+  .settings .group h3 {
+    margin: 0 0 8px;
+    font-size: 12px;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+  .field label {
+    flex: 1;
+    color: var(--dim);
+  }
+  .field input[type=range] {
+    flex: 1.2;
+    accent-color: var(--accent);
+  }
+  .field input[type=number] {
+    width: 70px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 4px 6px;
+    border-radius: 4px;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  .field input[type=checkbox] {
+    accent-color: var(--accent);
+  }
+  footer {
+    padding: 10px 20px;
+    color: var(--dim);
+    font-size: 11px;
+    border-top: 1px solid var(--line);
+    background: var(--panel);
+  }
+  @media (max-width: 900px) {
+    main { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Forza DualSense</h1>
+  <span class="version" id="version">·</span>
+  <span class="badge"><span class="dot" id="hid-dot"></span><span id="hid-label">HID: …</span></span>
+  <span class="badge"><span class="dot" id="udp-dot"></span><span id="udp-label">UDP: …</span></span>
+  <span style="flex:1"></span>
+  <span class="badge" id="rate-label">— pkts/s</span>
+</header>
+
+<main>
+  <section>
+    <div class="card plots">
+      <h2>Live charts</h2>
+      <div class="plot">
+        <div class="hd"><span class="lbl">Speed (km/h)</span><span class="val" id="plot-speed-val">—</span></div>
+        <canvas id="plot-speed"></canvas>
+      </div>
+      <div class="plot">
+        <div class="hd"><span class="lbl">RPM</span><span class="val" id="plot-rpm-val">—</span></div>
+        <canvas id="plot-rpm"></canvas>
+      </div>
+      <div class="plot">
+        <div class="hd">
+          <span class="lbl">Inputs</span>
+          <span class="legend"><span class="l-thr">throttle</span><span class="l-brk">brake</span></span>
+        </div>
+        <canvas id="plot-inputs"></canvas>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Live telemetry</h2>
+      <div class="row"><label>Race</label><div class="value" id="t-on">—</div></div>
+      <div class="row"><label>Gear</label><div class="value" id="t-gear">—</div></div>
+      <div class="row"><label>Speed</label><div class="value" id="t-speed">—</div></div>
+      <div class="row">
+        <label>RPM</label>
+        <div class="bar"><div class="fill rpm" id="t-rpm-bar" style="width:0"></div></div>
+        <div class="value" id="t-rpm">—</div>
+      </div>
+      <div class="row">
+        <label>Throttle</label>
+        <div class="bar"><div class="fill accel" id="t-accel-bar" style="width:0"></div></div>
+        <div class="value" id="t-accel">—</div>
+      </div>
+      <div class="row">
+        <label>Brake</label>
+        <div class="bar"><div class="fill brake" id="t-brake-bar" style="width:0"></div></div>
+        <div class="value" id="t-brake">—</div>
+      </div>
+      <div class="row"><label>Handbrake</label><div class="value" id="t-hb">—</div></div>
+      <div class="row"><label>Max slip</label><div class="value" id="t-slip">—</div></div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Trigger effects</h2>
+      <div class="triggers">
+        <div class="trig">
+          <div class="label">L2 — Brake</div>
+          <div class="mode" id="l2-mode">—</div>
+          <div class="params" id="l2-params"></div>
+        </div>
+        <div class="trig">
+          <div class="label">R2 — Throttle</div>
+          <div class="mode" id="r2-mode">—</div>
+          <div class="params" id="r2-params"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <h2>Diagnostics</h2>
+      <details open>
+        <summary>Connection state</summary>
+        <div id="diag" style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--dim);"></div>
+      </details>
+    </div>
+  </section>
+
+  <aside class="card settings">
+    <h2>Settings</h2>
+    <div id="settings-root"></div>
+    <button id="reset" style="margin-top:8px; width:100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: 6px; cursor: pointer;">Reset to defaults</button>
+  </aside>
+</main>
+
+<footer>
+  Open the native window for the full UI. Settings here mirror the dataclass in <code>src/settings.rs</code> — changes save instantly to <code>%APPDATA%/forza-dualsense/settings.json</code>.
+</footer>
+
+<script>
+const SETTINGS_GROUPS = [
+  { title: "Brake (L2)", fields: [
+    { k: "enable_brake_resistance", kind: "bool" },
+    { k: "brake_deadzone",         kind: "u8" },
+    { k: "brake_baseline_force",   kind: "u8" },
+    { k: "brake_max_force",        kind: "u8" },
+    { k: "brake_curve",            kind: "f32", lo: 0.5, hi: 8 },
+    { k: "brake_wall_engage_at",   kind: "u8" },
+    { k: "brake_wall_release_at",  kind: "u8" },
+    { k: "enable_handbrake_bonus", kind: "bool" },
+    { k: "handbrake_bonus",        kind: "u8" },
+  ]},
+  { title: "ABS / slip pulse", fields: [
+    { k: "enable_abs",                   kind: "bool" },
+    { k: "abs_brake_threshold",          kind: "u8" },
+    { k: "abs_min_speed_kmh",            kind: "f32", lo: 0, hi: 80 },
+    { k: "abs_slip_ratio_threshold",     kind: "f32", lo: 0, hi: 3 },
+    { k: "abs_combined_slip_threshold",  kind: "f32", lo: 0, hi: 3 },
+    { k: "abs_freq",                     kind: "u8", lo: 1, hi: 60 },
+    { k: "abs_amp",                      kind: "u8" },
+  ]},
+  { title: "Throttle (R2)", fields: [
+    { k: "enable_throttle_resistance", kind: "bool" },
+    { k: "accel_deadzone",             kind: "u8" },
+    { k: "throttle_baseline_force",    kind: "u8" },
+    { k: "throttle_max_force",         kind: "u8" },
+    { k: "throttle_curve",             kind: "f32", lo: 0.5, hi: 8 },
+    { k: "throttle_wall_engage_at",    kind: "u8" },
+    { k: "throttle_wall_release_at",   kind: "u8" },
+  ]},
+  { title: "Gear shift", fields: [
+    { k: "enable_gear_shift",        kind: "bool" },
+    { k: "enable_gear_shift_brake",  kind: "bool" },
+    { k: "gear_shift_freq",          kind: "u8",  lo: 1, hi: 60 },
+    { k: "gear_shift_amp",           kind: "u8" },
+    { k: "gear_shift_duration_ms",   kind: "f32", lo: 20, hi: 400 },
+  ]},
+  { title: "Rev limiter", fields: [
+    { k: "enable_rev_limiter", kind: "bool" },
+    { k: "rev_limit_ratio",    kind: "f32", lo: 0.5, hi: 1 },
+    { k: "rev_limit_freq",     kind: "u8",  lo: 1, hi: 60 },
+    { k: "rev_limit_amp",      kind: "u8" },
+    { k: "rev_limit_hold_ms",  kind: "f32", lo: 0, hi: 500 },
+  ]},
+  { title: "System", fields: [
+    { k: "enable_startup_pulse", kind: "bool" },
+    { k: "startup_pulse_force",  kind: "u8" },
+    { k: "wall_zones",           kind: "u8", lo: 1, hi: 9 },
+    { k: "enable_auto_update",   kind: "bool" },
+  ]},
+  { title: "Debug", fields: [
+    { k: "enable_test_force", kind: "bool" },
+    { k: "test_brake",        kind: "u8" },
+    { k: "test_throttle",     kind: "u8" },
+  ]},
+];
+
+let currentSettings = null;
+let suppressPost = false;
+
+// ─── Live plots ────────────────────────────────────────────────────
+const PLOT_WINDOW_S = 20;
+const PLOT_CAPACITY = 600;
+const plotBuf = { t: [], speed: [], rpm: [], maxRpm: [], thr: [], brk: [] };
+let lastTickMs = performance.now();
+
+function pushPlotSample(snap) {
+  const now = performance.now() / 1000;
+  const t = snap.telemetry;
+  plotBuf.t.push(now);
+  plotBuf.speed.push(t.speed_kmh);
+  plotBuf.rpm.push(t.rpm);
+  plotBuf.maxRpm.push(t.max_rpm);
+  plotBuf.thr.push(t.accel / 255);
+  plotBuf.brk.push(t.brake / 255);
+  if (plotBuf.t.length > PLOT_CAPACITY) {
+    for (const k of Object.keys(plotBuf)) plotBuf[k].shift();
+  }
+}
+
+function fitCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth;
+  const h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, w, h };
+}
+
+function drawSeries(canvas, ts, vals, color, opts = {}) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  ctx.clearRect(0, 0, w, h);
+
+  if (ts.length < 2) return;
+
+  const now = ts[ts.length - 1];
+  const tMin = now - PLOT_WINDOW_S;
+
+  let yMax = opts.yMax;
+  let yMin = opts.yMin ?? 0;
+  if (yMax === undefined) {
+    yMax = 0;
+    for (let i = 0; i < vals.length; i++) {
+      if (ts[i] < tMin) continue;
+      if (vals[i] > yMax) yMax = vals[i];
+    }
+    yMax = Math.max(yMax * 1.05, opts.yMinFloor ?? 1);
+  }
+
+  // Grid baseline.
+  ctx.strokeStyle = "#262d36";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, h - 0.5);
+  ctx.lineTo(w, h - 0.5);
+  ctx.stroke();
+
+  const xOf = (t) => ((t - tMin) / PLOT_WINDOW_S) * w;
+  const yOf = (v) => h - ((v - yMin) / (yMax - yMin)) * h;
+
+  // Fill under the curve.
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i] < tMin) continue;
+    const x = xOf(ts[i]);
+    const y = yOf(vals[i]);
+    if (!started) { ctx.moveTo(x, h); ctx.lineTo(x, y); started = true; }
+    else ctx.lineTo(x, y);
+  }
+  if (started) {
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    const fill = ctx.createLinearGradient(0, 0, 0, h);
+    fill.addColorStop(0, color + "55");
+    fill.addColorStop(1, color + "00");
+    ctx.fillStyle = fill;
+    ctx.fill();
+  }
+
+  // Line.
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  started = false;
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i] < tMin) continue;
+    const x = xOf(ts[i]);
+    const y = yOf(vals[i]);
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else ctx.lineTo(x, y);
+  }
+  if (started) ctx.stroke();
+}
+
+function drawDualSeries(canvas, ts, a, aColor, b, bColor) {
+  drawSeries(canvas, ts, a, aColor, { yMin: 0, yMax: 1 });
+  // Overlay second series without clearing.
+  const { ctx, w, h } = fitCanvas(canvas);
+  const now = ts[ts.length - 1];
+  const tMin = now - PLOT_WINDOW_S;
+  const xOf = (t) => ((t - tMin) / PLOT_WINDOW_S) * w;
+  const yOf = (v) => h - v * h;
+  ctx.strokeStyle = bColor;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = "round";
+  ctx.beginPath();
+  let started = false;
+  for (let i = 0; i < ts.length; i++) {
+    if (ts[i] < tMin) continue;
+    const x = xOf(ts[i]);
+    const y = yOf(b[i]);
+    if (!started) { ctx.moveTo(x, y); started = true; }
+    else ctx.lineTo(x, y);
+  }
+  if (started) ctx.stroke();
+}
+
+function renderPlots(snap) {
+  pushPlotSample(snap);
+  const t = snap.telemetry;
+  const maxRpm = Math.max(...plotBuf.maxRpm, 8000);
+
+  document.getElementById("plot-speed-val").textContent = `${t.speed_kmh.toFixed(0)} km/h`;
+  document.getElementById("plot-rpm-val").textContent = `${Math.round(t.rpm)}`;
+
+  drawSeries(
+    document.getElementById("plot-speed"),
+    plotBuf.t, plotBuf.speed,
+    "#00b4ff",
+    { yMinFloor: 40 },
+  );
+  drawSeries(
+    document.getElementById("plot-rpm"),
+    plotBuf.t, plotBuf.rpm,
+    "#ffb43c",
+    { yMax: maxRpm },
+  );
+  drawDualSeries(
+    document.getElementById("plot-inputs"),
+    plotBuf.t,
+    plotBuf.thr, "#50dc78",
+    plotBuf.brk, "#ff5a64",
+  );
+}
+
+function renderSettings(settings) {
+  const root = document.getElementById("settings-root");
+  root.innerHTML = "";
+  for (const grp of SETTINGS_GROUPS) {
+    const el = document.createElement("div");
+    el.className = "group";
+    el.innerHTML = `<h3>${grp.title}</h3>`;
+    for (const f of grp.fields) {
+      const v = settings[f.k];
+      const row = document.createElement("div");
+      row.className = "field";
+      const label = document.createElement("label");
+      label.textContent = f.k;
+      row.appendChild(label);
+      let inp;
+      if (f.kind === "bool") {
+        inp = document.createElement("input");
+        inp.type = "checkbox";
+        inp.checked = !!v;
+        inp.addEventListener("change", () => mutate(f.k, inp.checked));
+      } else {
+        const lo = f.lo ?? (f.kind === "u8" ? 0 : 0);
+        const hi = f.hi ?? (f.kind === "u8" ? 255 : 100);
+        const range = document.createElement("input");
+        range.type = "range";
+        range.min = lo; range.max = hi;
+        range.step = f.kind === "f32" ? (hi - lo) / 200 : 1;
+        range.value = v;
+        const num = document.createElement("input");
+        num.type = "number";
+        num.min = lo; num.max = hi;
+        num.step = f.kind === "f32" ? 0.05 : 1;
+        num.value = v;
+        range.addEventListener("input", () => {
+          num.value = range.value;
+          mutate(f.k, parseFloat(range.value));
+        });
+        num.addEventListener("change", () => {
+          range.value = num.value;
+          mutate(f.k, parseFloat(num.value));
+        });
+        row.appendChild(range);
+        inp = num;
+      }
+      row.appendChild(inp);
+      el.appendChild(row);
+    }
+    root.appendChild(el);
+  }
+}
+
+function mutate(key, value) {
+  if (!currentSettings || suppressPost) return;
+  currentSettings[key] = value;
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(currentSettings),
+  });
+}
+
+document.getElementById("reset").addEventListener("click", async () => {
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  refreshSettings();
+});
+
+async function refreshSettings() {
+  const r = await fetch("/api/settings");
+  const s = await r.json();
+  currentSettings = s;
+  suppressPost = true;
+  renderSettings(s);
+  suppressPost = false;
+}
+
+function fmtEffect(eff) {
+  if (!eff || eff.kind === "off") return ["OFF", ""];
+  if (eff.kind === "rigid") return ["RIGID", `force=${eff.force}`];
+  if (eff.kind === "vibration") return ["VIBRATION", `freq=${eff.freq}Hz  amp=${eff.amp}`];
+  if (eff.kind === "vibration_wall") return ["WALL_PULSE", `freq=${eff.freq}Hz  amp=${eff.amp_strength}  zones=${eff.wall_zones}`];
+  if (eff.kind === "feedback") return ["WALL", ""];
+  return [eff.kind, ""];
+}
+
+function render(snap) {
+  renderPlots(snap);
+  document.getElementById("version").textContent = `udp ${snap.udp_host}:${snap.udp_port}`;
+
+  const hidDot = document.getElementById("hid-dot");
+  const hidLbl = document.getElementById("hid-label");
+  if (snap.hid_status === "connected") {
+    hidDot.classList.add("ok");
+    hidLbl.textContent = `HID: ${snap.hid_transport ?? "connected"}`;
+  } else {
+    hidDot.classList.remove("ok");
+    hidLbl.textContent = `HID: ${snap.hid_status}`;
+  }
+
+  const udpAlive = snap.seconds_since_packet !== null && snap.seconds_since_packet < 2;
+  const udpDot = document.getElementById("udp-dot");
+  udpDot.classList.toggle("ok", !!udpAlive);
+  document.getElementById("udp-label").textContent = udpAlive ? "UDP: receiving" : "UDP: idle";
+
+  document.getElementById("rate-label").textContent = `${snap.packets_per_sec.toFixed(0)} pkts/s`;
+
+  const t = snap.telemetry;
+  document.getElementById("t-on").textContent = t.on ? "yes" : "no";
+  document.getElementById("t-gear").textContent = t.gear;
+  document.getElementById("t-speed").textContent = t.speed_kmh.toFixed(1) + " km/h";
+  document.getElementById("t-rpm").textContent = `${Math.round(t.rpm)} / ${Math.round(t.max_rpm)}`;
+  const rpmPct = t.max_rpm > 0 ? Math.min(100, (t.rpm / t.max_rpm) * 100) : 0;
+  document.getElementById("t-rpm-bar").style.width = rpmPct + "%";
+  document.getElementById("t-accel").textContent = t.accel;
+  document.getElementById("t-brake").textContent = t.brake;
+  document.getElementById("t-accel-bar").style.width = (t.accel / 255 * 100) + "%";
+  document.getElementById("t-brake-bar").style.width = (t.brake / 255 * 100) + "%";
+  document.getElementById("t-hb").textContent = t.handbrake ? "engaged" : "—";
+  const slipRatio = Math.max(
+    Math.abs(t.tire_slip_ratio[0]),
+    Math.abs(t.tire_slip_ratio[1]),
+    Math.abs(t.tire_slip_ratio[2]),
+    Math.abs(t.tire_slip_ratio[3]),
+  );
+  const slipComb = Math.max(
+    Math.abs(t.tire_combined_slip[0]),
+    Math.abs(t.tire_combined_slip[1]),
+    Math.abs(t.tire_combined_slip[2]),
+    Math.abs(t.tire_combined_slip[3]),
+  );
+  document.getElementById("t-slip").textContent = `r ${slipRatio.toFixed(2)} · c ${slipComb.toFixed(2)}`;
+
+  const [lMode, lParams] = fmtEffect(snap.l2);
+  document.getElementById("l2-mode").textContent = lMode;
+  document.getElementById("l2-params").textContent = lParams;
+  const [rMode, rParams] = fmtEffect(snap.r2);
+  document.getElementById("r2-mode").textContent = rMode;
+  document.getElementById("r2-params").textContent = rParams;
+
+  const diag = document.getElementById("diag");
+  diag.textContent =
+    `packets received : ${snap.packets_received}\n` +
+    `uptime           : ${snap.uptime_s.toFixed(0)}s\n` +
+    `seconds since rx : ${snap.seconds_since_packet === null ? "never" : snap.seconds_since_packet.toFixed(1)}\n` +
+    (snap.hid_error ? `hid error        : ${snap.hid_error}\n` : "") +
+    (snap.hid_serial ? `controller serial: ${snap.hid_serial}\n` : "");
+}
+
+function connectWs() {
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const ws = new WebSocket(`${proto}//${location.host}/api/ws`);
+  ws.onmessage = (m) => {
+    try { render(JSON.parse(m.data)); } catch (e) { /* ignore */ }
+  };
+  ws.onclose = () => setTimeout(connectWs, 1000);
+}
+
+refreshSettings();
+connectWs();
+</script>
+
+</body>
+</html>

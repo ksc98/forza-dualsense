@@ -1,0 +1,54 @@
+[workspace]
+
+[package]
+name = "forza-dualsense"
+version = "0.1.1"
+edition = "2021"
+description = "Adaptive trigger feedback for Forza Horizon on the DualSense controller"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ksc98/forza-dualsense"
+default-run = "forza-dualsense"
+
+[[bin]]
+name = "forza-dualsense"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
+hidapi = "2.6"
+parking_lot = "0.12"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Web server
+axum = { version = "0.7", features = ["ws", "macros"] }
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+rust-embed = { version = "8", features = ["debug-embed"] }
+mime_guess = "2"
+
+# Native GUI
+eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.27"
+egui_plot = "0.27"
+
+# Forza process detection
+sysinfo = { version = "0.30", default-features = false }
+dirs = "5"
+
+# Self-update against GitHub Releases
+self_update = { version = "0.41", default-features = false, features = ["rustls", "archive-zip", "compression-zip-deflate"] }
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
