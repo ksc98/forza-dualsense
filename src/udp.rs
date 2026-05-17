@@ -15,6 +15,7 @@ pub async fn run(state: SharedState, host: String, port: u16) -> Result<()> {
     let socket = UdpSocket::bind(addr)
         .await
         .with_context(|| format!("failed to bind UDP {addr} (already in use? firewall?)"))?;
+    state.lock().udp_bound = true;
     tracing::info!("UDP listening on {addr}");
 
     let mut buf = [0u8; 2048];

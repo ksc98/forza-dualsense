@@ -14,10 +14,11 @@ use crate::state::{HidStatus, SharedState};
 use crate::triggers::Effect;
 
 const TICK_HZ: u64 = 250;
+const RECONNECT_INTERVAL: Duration = Duration::from_secs(10);
+const TELEMETRY_LOST_AFTER: Duration = Duration::from_secs(60);
 
 pub fn run(state: SharedState) {
     loop {
-        let reconnect_s = state.lock().settings.reconnect_interval_s;
         match DualSense::open() {
             Ok(dev) => {
                 {
@@ -48,7 +49,7 @@ pub fn run(state: SharedState) {
                 tracing::debug!("DualSense not present: {e}");
             }
         }
-        sleep(Duration::from_secs_f32(reconnect_s));
+        sleep(RECONNECT_INTERVAL);
     }
 }
 
@@ -92,24 +93,15 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             next_deadline = now;
         }
 
-        let (telemetry, settings, packets, exit_on_close, telemetry_lost_s) = {
+        let (telemetry, settings, packets) = {
             let s = state.lock();
-            (
-                s.telemetry,
-                s.settings.clone(),
-                s.packets_received,
-                s.settings.exit_on_game_close,
-                s.settings.telemetry_lost_exit_s,
-            )
+            (s.telemetry, s.settings.clone(), s.packets_received)
         };
 
         if packets != last_seen_packets {
             last_seen_packets = packets;
             last_telemetry_change = Instant::now();
-        } else if exit_on_close
-            && packets > 0
-            && last_telemetry_change.elapsed() > Duration::from_secs_f32(telemetry_lost_s)
-        {
+        } else if packets > 0 && last_telemetry_change.elapsed() > TELEMETRY_LOST_AFTER {
             // Telemetry has been silent long enough — neutral triggers
             // and idle. The supervisor (this same fn) keeps spinning.
             dev.write_triggers(&Effect::Off, &Effect::Off)?;

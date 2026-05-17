@@ -15,7 +15,13 @@ pub struct GuiApp {
     state: SharedState,
     #[cfg(windows)]
     tray: Option<Tray>,
+    /// Settings the user is currently dragging — kept out of the shared
+    /// state until the debounce timer expires, so a slider drag doesn't
+    /// fsync the config file on every frame.
+    pending_save: Option<(Settings, std::time::Instant)>,
 }
+
+const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(400);
 
 impl GuiApp {
     pub fn new(state: SharedState, cc: &eframe::CreationContext<'_>) -> Self {
@@ -32,6 +38,7 @@ impl GuiApp {
             state,
             #[cfg(windows)]
             tray,
+            pending_save: None,
         }
     }
 }
@@ -148,10 +155,8 @@ impl eframe::App for GuiApp {
                         let mut changed = false;
                         changed |= settings_panel(ui, &mut new_settings);
                         if changed {
-                            let mut s = self.state.lock();
-                            s.settings = new_settings.clone();
-                            drop(s);
-                            let _ = new_settings.save();
+                            self.state.lock().settings = new_settings.clone();
+                            self.pending_save = Some((new_settings, std::time::Instant::now()));
                         }
                     });
             });
@@ -171,6 +176,17 @@ impl eframe::App for GuiApp {
                         diagnostics(ui, &snapshot);
                     });
             });
+
+        if let Some((_, t)) = &self.pending_save {
+            if t.elapsed() >= SAVE_DEBOUNCE {
+                let (settings, _) = self.pending_save.take().unwrap();
+                std::thread::spawn(move || {
+                    if let Err(e) = settings.save() {
+                        tracing::warn!("settings save failed: {e}");
+                    }
+                });
+            }
+        }
     }
 }
 

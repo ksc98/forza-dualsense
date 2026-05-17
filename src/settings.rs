@@ -7,10 +7,8 @@ pub struct Settings {
     // --- UDP ---
     pub udp_host: String,
     pub udp_port: u16,
-    pub udp_timeout_ms: u64,
 
     // --- Shared pedal config ---
-    pub pedal_value_max: u8,
     pub wall_zones: u8,
 
     // --- L2: Brake ---
@@ -77,11 +75,6 @@ pub struct Settings {
     // --- System ---
     pub enable_startup_pulse: bool,
     pub startup_pulse_force: u8,
-    pub reconnect_interval_s: f32,
-    pub exit_on_game_close: bool,
-    pub game_process_name_contains: Vec<String>,
-    pub game_poll_interval_s: f32,
-    pub telemetry_lost_exit_s: f32,
 
     pub enable_auto_update: bool,
 
@@ -98,9 +91,7 @@ impl Default for Settings {
         Self {
             udp_host: "127.0.0.1".into(),
             udp_port: 5300,
-            udp_timeout_ms: 500,
 
-            pedal_value_max: 255,
             wall_zones: 2,
 
             enable_brake_resistance: true,
@@ -151,11 +142,6 @@ impl Default for Settings {
 
             enable_startup_pulse: true,
             startup_pulse_force: 150,
-            reconnect_interval_s: 10.0,
-            exit_on_game_close: true,
-            game_process_name_contains: vec!["forza".into()],
-            game_poll_interval_s: 1.0,
-            telemetry_lost_exit_s: 60.0,
 
             enable_auto_update: true,
 
@@ -181,13 +167,20 @@ impl Settings {
         Self::default()
     }
 
+    /// Atomic write: serialise, write to a sibling tmp file, then rename
+    /// into place. Prevents a crash or concurrent writer from leaving a
+    /// truncated settings.json on disk.
     pub fn save(&self) -> anyhow::Result<()> {
-        if let Some(p) = Self::config_path() {
-            if let Some(dir) = p.parent() {
-                std::fs::create_dir_all(dir)?;
-            }
-            std::fs::write(p, serde_json::to_string_pretty(self)?)?;
+        let Some(p) = Self::config_path() else {
+            return Ok(());
+        };
+        if let Some(dir) = p.parent() {
+            std::fs::create_dir_all(dir)?;
         }
+        let json = serde_json::to_string_pretty(self)?;
+        let tmp = p.with_extension("json.tmp");
+        std::fs::write(&tmp, json)?;
+        std::fs::rename(&tmp, &p)?;
         Ok(())
     }
 }

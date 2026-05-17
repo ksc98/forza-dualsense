@@ -84,7 +84,8 @@ fn main() -> Result<()> {
         .enable_all()
         .build()?;
 
-    // Spawn background tasks.
+    // Spawn background tasks. udp::run flips `udp_bound` true once the
+    // bind succeeds — don't set it optimistically here.
     {
         let st = state.clone();
         let host = st.lock().settings.udp_host.clone();
@@ -95,7 +96,6 @@ fn main() -> Result<()> {
                 st.lock().udp_bound = false;
             }
         });
-        state.lock().udp_bound = true;
     }
     {
         let st = state.clone();

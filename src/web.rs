@@ -93,12 +93,16 @@ async fn post_settings(
         let mut s = ctx.state.lock();
         s.settings = new_settings.clone();
     }
-    match new_settings.save() {
-        Ok(_) => (StatusCode::OK, "ok"),
-        Err(e) => {
+    // The save uses blocking std::fs; punt it off the runtime so a slow
+    // disk doesn't stall the UDP / HID / WS work sharing these threads.
+    let save = tokio::task::spawn_blocking(move || new_settings.save()).await;
+    match save {
+        Ok(Ok(_)) => (StatusCode::OK, "ok"),
+        Ok(Err(e)) => {
             ctx.state.lock().last_settings_save_error = e.to_string();
             (StatusCode::INTERNAL_SERVER_ERROR, "save failed")
         }
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "save task panicked"),
     }
 }
 

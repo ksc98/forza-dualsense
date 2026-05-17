@@ -47,19 +47,27 @@ fn brake_ramp(value: u8, s: &Settings) -> f32 {
     if value < deadzone {
         return baseline;
     }
+    // Both spans below are clamped to ≥1 so the divides can't NaN even
+    // when the user drags deadzone/bite_point/wall_at to overlap.
     let bite_point = s.brake_bite_point.max(deadzone.saturating_add(1));
+    let bite_span = (bite_point - deadzone).max(1) as f32;
     let bite_force = s.brake_bite_force as f32;
     if value < bite_point {
-        let r = (value - deadzone) as f32 / (bite_point - deadzone) as f32;
+        let r = (value - deadzone) as f32 / bite_span;
         return baseline + (bite_force - baseline) * r;
     }
     let wall_at = s.brake_wall_engage_at.max(bite_point.saturating_add(1));
+    let wall_span = (wall_at - bite_point).max(1) as f32;
     let top = value.min(wall_at);
-    let r = (top - bite_point) as f32 / (wall_at - bite_point) as f32;
+    let r = (top - bite_point) as f32 / wall_span;
     bite_force + (s.brake_max_force as f32 - bite_force) * r.powf(s.brake_curve)
 }
 
+/// Returns whether the trigger is currently in its rigid "wall" zone.
+/// Clamps `release_at < engage_at` so inverted slider values can't
+/// invert the hysteresis (or erase it via equality).
 fn wall_state(value: u8, engaged: bool, engage_at: u8, release_at: u8) -> bool {
+    let release_at = release_at.min(engage_at.saturating_sub(1));
     if engaged {
         value >= release_at
     } else {
