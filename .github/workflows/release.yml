@@ -5,16 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Release tag (must look like vX.Y.Z and match Cargo.toml version)'
-        required: true
-        type: string
 
 permissions:
   contents: write
 
-# Block two releases from running at once (would race the tag/asset upload).
+# Block two releases from running at once.
 concurrency:
   group: release-${{ github.workflow }}
   cancel-in-progress: false
@@ -32,38 +27,56 @@ jobs:
         id: tag
         shell: pwsh
         env:
-          INPUT_TAG: ${{ inputs.tag }}
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
-            $t = $env:INPUT_TAG
-          } else {
-            $t = $env:REF_NAME
-          }
-          if (-not ($t -match '^v\d+\.\d+\.\d+$')) {
-            Write-Error "tag must look like 'vX.Y.Z', got '$t'"
-            exit 1
-          }
-          "tag=$t"                       | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "version=$($t.TrimStart('v'))" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Verify Cargo.toml version matches tag
-        shell: pwsh
-        env:
-          EXPECTED: ${{ steps.tag.outputs.version }}
-        run: |
+          # Parse Cargo.toml — always the source of truth for the version.
           $cargo = Get-Content Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
             Write-Error "Could not parse 'version' from Cargo.toml"
             exit 1
           }
-          $found = $Matches[1]
-          Write-Host "Cargo.toml version: $found"
-          Write-Host "Tag version       : $env:EXPECTED"
-          if ($found -ne $env:EXPECTED) {
-            Write-Error "Cargo.toml version ($found) does not match release tag ($env:EXPECTED). Bump Cargo.toml on main and re-dispatch."
+          $cargoVersion = $Matches[1]
+          $derivedTag = "v$cargoVersion"
+
+          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
+            $t = $derivedTag
+            Write-Host "workflow_dispatch — releasing Cargo.toml version $cargoVersion as $t"
+          } else {
+            $t = $env:REF_NAME
+            if (-not ($t -match '^v\d+\.\d+\.\d+$')) {
+              Write-Error "Pushed tag must look like 'vX.Y.Z', got '$t'"
+              exit 1
+            }
+            if ($t -ne $derivedTag) {
+              Write-Error "Pushed tag $t does not match Cargo.toml version $cargoVersion (expected $derivedTag). Bump Cargo.toml on main and re-tag."
+              exit 1
+            }
+            Write-Host "push tag — releasing $t (Cargo.toml matches)"
+          }
+          "tag=$t" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Refuse to re-release an existing tag
+        shell: pwsh
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          $url = "https://api.github.com/repos/$env:REPO/releases/tags/$env:TAG"
+          $hdr = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json"; "User-Agent" = "forza-dualsense-release" }
+          try {
+            Invoke-WebRequest -Uri $url -Headers $hdr -UseBasicParsing | Out-Null
+            Write-Error "Release $env:TAG already exists. Bump the version in Cargo.toml and run again."
             exit 1
+          } catch {
+            $code = $null
+            try { $code = $_.Exception.Response.StatusCode.value__ } catch { }
+            if ($code -eq 404) {
+              Write-Host "Tag $env:TAG is fresh — proceeding."
+            } else {
+              throw
+            }
           }
 
       - uses: dtolnay/rust-toolchain@stable
