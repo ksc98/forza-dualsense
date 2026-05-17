@@ -1,7 +1,14 @@
+// On Windows, build as a GUI app so no console pops up at launch. The
+// `console` subsystem is the default for binaries, which spawns a cmd
+// window every time. Debug builds keep the console so logs are still
+// visible during development.
+#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]
+
 mod controller;
 mod gui;
 mod hid;
 mod hid_task;
+mod logs;
 mod settings;
 mod state;
 mod telemetry;
@@ -61,12 +68,15 @@ fn main() -> Result<()> {
     let args = Args::parse();
 
     let env_filter = if args.debug { "debug" } else { "info" };
+    let log_buffer = logs::SharedLogs::new();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| env_filter.into()),
         )
         .with_target(false)
+        .with_ansi(false)
+        .with_writer(log_buffer.clone())
         .init();
 
     let mut settings = Settings::load_or_default();
@@ -77,7 +87,7 @@ fn main() -> Result<()> {
         settings.udp_port = p;
     }
 
-    let state = Arc::new(Mutex::new(AppState::new(settings)));
+    let state = Arc::new(Mutex::new(AppState::new(settings, log_buffer)));
 
     let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
@@ -160,7 +170,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Forza DualSense",
         native_options,
-        Box::new(move |cc| Box::new(gui::GuiApp::new(state.clone(), cc))),
+        Box::new(move |cc| Ok(Box::new(gui::GuiApp::new(state.clone(), cc)))),
     )
     .map_err(|e| anyhow::anyhow!("egui: {e}"))?;
 

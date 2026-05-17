@@ -135,6 +135,10 @@ impl DualSense {
         let size = self.transport.report_size();
         let mut buf = vec![0u8; size];
         buf[0] = self.transport.report_id();
+        // BT report 0x31: byte 1 is the sequence/tag byte. The zero-init
+        // above leaves it at 0x00, which every DualSense firmware seen
+        // in the wild tolerates. If a future firmware enforces Sony's
+        // rotating-nibble protocol, add a per-write counter here.
         let mut flags = FLAGS_TRIGGERS_ONLY;
         if rumble_heavy != 0 || rumble_light != 0 {
             flags |= FLAGS_RUMBLE;

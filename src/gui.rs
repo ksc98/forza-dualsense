@@ -19,6 +19,12 @@ pub struct GuiApp {
     /// state until the debounce timer expires, so a slider drag doesn't
     /// fsync the config file on every frame.
     pending_save: Option<(Settings, std::time::Instant)>,
+    /// True iff we've hidden the window to the tray. We only act on the
+    /// minimize→hide transition once, otherwise restoring via the tray
+    /// keeps re-hiding the window because `viewport().minimized` is
+    /// still true for a frame or two after `Minimized(false)` is sent.
+    #[cfg(windows)]
+    hidden_to_tray: bool,
 }
 
 const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(400);
@@ -39,15 +45,21 @@ impl GuiApp {
             #[cfg(windows)]
             tray,
             pending_save: None,
+            #[cfg(windows)]
+            hidden_to_tray: false,
         }
     }
 }
 
 #[cfg(windows)]
-fn restore_window(ctx: &egui::Context) {
+fn restore_window(ctx: &egui::Context, hidden_to_tray: &mut bool) {
     ctx.send_viewport_cmd(ViewportCommand::Visible(true));
     ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
     ctx.send_viewport_cmd(ViewportCommand::Focus);
+    // Clear our state machine *before* the next minimize-to-tray check
+    // runs — otherwise the lingering viewport().minimized=true reading
+    // would immediately re-hide us.
+    *hidden_to_tray = false;
 }
 
 // Palette.
@@ -76,15 +88,15 @@ fn apply_style(ctx: &egui::Context) {
     v.hyperlink_color = ACCENT;
     ctx.set_visuals(v);
 
-    let mut style = (*ctx.style()).clone();
+    let mut style = (*ctx.global_style()).clone();
     style.spacing.item_spacing = egui::vec2(8.0, 6.0);
-    style.spacing.window_margin = egui::Margin::same(12.0);
+    style.spacing.window_margin = egui::Margin::same(12);
     style.spacing.button_padding = egui::vec2(10.0, 4.0);
     style.text_styles.insert(
         egui::TextStyle::Heading,
         egui::FontId::new(20.0, egui::FontFamily::Proportional),
     );
-    ctx.set_style(style);
+    ctx.set_global_style(style);
 }
 
 impl eframe::App for GuiApp {
@@ -97,7 +109,9 @@ impl eframe::App for GuiApp {
         false
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
 
         #[cfg(windows)]
@@ -107,7 +121,7 @@ impl eframe::App for GuiApp {
             // each frame.
             while let Ok(ev) = MenuEvent::receiver().try_recv() {
                 if ev.id == tray.show_id {
-                    restore_window(ctx);
+                    restore_window(ctx, &mut self.hidden_to_tray);
                 } else if ev.id == tray.quit_id {
                     std::process::exit(0);
                 }
@@ -122,30 +136,34 @@ impl eframe::App for GuiApp {
                     ..
                 } = ev
                 {
-                    restore_window(ctx);
+                    restore_window(ctx, &mut self.hidden_to_tray);
                 }
             }
-            // Minimize -> hide to tray.
+            // Minimize -> hide to tray. Only act on the false→true
+            // transition: if we react to the steady "minimized" state we
+            // re-hide the window the frame after the user clicks Show,
+            // because viewport().minimized takes a frame to clear.
             let minimized = ctx.input(|i| i.viewport().minimized).unwrap_or(false);
-            if minimized {
+            if minimized && !self.hidden_to_tray {
                 ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+                self.hidden_to_tray = true;
             }
         }
 
         let snapshot = self.collect_snapshot();
 
-        egui::TopBottomPanel::top("hdr")
-            .frame(egui::Frame::none().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14.0, 10.0)))
-            .show(ctx, |ui| {
+        egui::Panel::top("hdr")
+            .frame(egui::Frame::new().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14, 10)))
+            .show_inside(ui, |ui| {
                 header_bar(ui, &snapshot);
             });
 
-        egui::SidePanel::left("settings_panel_v4_left")
+        egui::Panel::left("settings_panel_v4_left")
             .resizable(false)
-            .exact_width(380.0)
-            .show(ctx, |ui| {
+            .exact_size(380.0)
+            .show_inside(ui, |ui| {
                 egui::ScrollArea::vertical()
-                    .id_source("settings_scroll")
+                    .id_salt("settings_scroll")
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         ui.add_space(6.0);
@@ -162,10 +180,10 @@ impl eframe::App for GuiApp {
             });
 
         egui::CentralPanel::default()
-            .frame(egui::Frame::none().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14.0, 12.0)))
-            .show(ctx, |ui| {
+            .frame(egui::Frame::new().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14, 12)))
+            .show_inside(ui, |ui| {
                 egui::ScrollArea::vertical()
-                    .id_source("central_scroll")
+                    .id_salt("central_scroll")
                     .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         update_banner(ui, &snapshot.update_status);
@@ -193,6 +211,7 @@ impl eframe::App for GuiApp {
 impl GuiApp {
     fn collect_snapshot(&self) -> SnapshotForUi {
         let s = self.state.lock();
+        let logs = s.logs.0.lock().snapshot();
 
         SnapshotForUi {
             hid_status: s.hid_status,
@@ -212,6 +231,7 @@ impl GuiApp {
             web_url: s.web_url.clone(),
             settings: s.settings.clone(),
             update_status: s.update_status.clone(),
+            logs,
         }
     }
 }
@@ -231,6 +251,7 @@ struct SnapshotForUi {
     web_url: String,
     settings: Settings,
     update_status: UpdateStatus,
+    logs: Vec<String>,
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -323,10 +344,10 @@ fn gear_label(g: u8) -> String {
 }
 
 fn stat_card(ui: &mut egui::Ui, label: &str, value: String, value_color: Color32) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(CARD_BG)
-        .rounding(8.0)
-        .inner_margin(egui::Margin::symmetric(14.0, 8.0))
+        .corner_radius(8)
+        .inner_margin(egui::Margin::symmetric(14, 8))
         .show(ui, |ui| {
             ui.vertical(|ui| {
                 ui.label(RichText::new(label).small().color(DIM).strong());
@@ -349,10 +370,10 @@ fn triggers_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
 }
 
 fn effect_card(ui: &mut egui::Ui, title: &str, eff: &Effect, accent: Color32) {
-    egui::Frame::none()
+    egui::Frame::new()
         .fill(CARD_BG)
-        .rounding(8.0)
-        .inner_margin(egui::Margin::symmetric(14.0, 10.0))
+        .corner_radius(8)
+        .inner_margin(egui::Margin::symmetric(14, 10))
         .show(ui, |ui| {
             ui.set_min_width(280.0);
             ui.vertical(|ui| {
@@ -393,10 +414,10 @@ fn describe_effect(eff: &Effect) -> (String, String) {
 fn update_banner(ui: &mut egui::Ui, status: &UpdateStatus) {
     match status {
         UpdateStatus::Applied { version } => {
-            egui::Frame::none()
+            egui::Frame::new()
                 .fill(Color32::from_rgb(20, 60, 40))
-                .rounding(8.0)
-                .inner_margin(egui::Margin::symmetric(12.0, 8.0))
+                .corner_radius(8)
+                .inner_margin(egui::Margin::symmetric(12, 8))
                 .show(ui, |ui| {
                     ui.label(
                         RichText::new(format!(
@@ -439,6 +460,19 @@ fn diagnostics(ui: &mut egui::Ui, snap: &SnapshotForUi) {
             snap.telemetry.max_slip_ratio(),
             snap.telemetry.max_combined_slip()
         ));
+    });
+
+    ui.collapsing(RichText::new("Logs").color(DIM), |ui| {
+        egui::ScrollArea::vertical()
+            .id_salt("log_scroll")
+            .max_height(220.0)
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                let mono = egui::FontId::monospace(11.0);
+                for line in &snap.logs {
+                    ui.label(RichText::new(line).font(mono.clone()).color(DIM));
+                }
+            });
     });
 }
 

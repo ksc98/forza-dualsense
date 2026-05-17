@@ -4,6 +4,7 @@ use std::time::Instant;
 use parking_lot::Mutex;
 use serde::Serialize;
 
+use crate::logs::SharedLogs;
 use crate::settings::Settings;
 use crate::telemetry::Telemetry;
 use crate::triggers::Effect;
@@ -33,12 +34,14 @@ pub struct AppState {
     pub web_url: String,
     pub last_settings_save_error: String,
     pub update_status: UpdateStatus,
+    pub logs: SharedLogs,
 }
 
 impl AppState {
-    pub fn new(settings: Settings) -> Self {
+    pub fn new(settings: Settings, logs: SharedLogs) -> Self {
         Self {
             settings,
+            logs,
             telemetry: Telemetry::default(),
             hid_status: HidStatus::Disconnected,
             hid_transport: None,

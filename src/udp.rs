@@ -31,13 +31,17 @@ pub async fn run(state: SharedState, host: String, port: u16) -> Result<()> {
             }
         };
 
-        // Drain anything else already queued so we use only the latest.
-        let mut latest_len = n;
+        // Drain anything else already queued so we react to the freshest
+        // *parseable* frame — if the last drained datagram is malformed
+        // we still want the last valid one, not a discard.
+        let mut latest = Telemetry::parse(&buf[..n]);
         while let Ok(more) = socket.try_recv(&mut buf) {
-            latest_len = more;
+            if let Some(t) = Telemetry::parse(&buf[..more]) {
+                latest = Some(t);
+            }
         }
 
-        if let Some(tel) = Telemetry::parse(&buf[..latest_len]) {
+        if let Some(tel) = latest {
             let mut s = state.lock();
             s.telemetry = tel;
             s.packets_received = s.packets_received.saturating_add(1);

@@ -114,16 +114,13 @@ async fn handle_ws(mut socket: WebSocket, ctx: AppCtx) {
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     loop {
         interval.tick().await;
-        let pps = {
-            let s = ctx.state.lock();
-            let mut p = ctx.pps.lock();
-            p.update(s.packets_received)
-        };
         let payload = {
             let s = ctx.state.lock();
+            let mut p = ctx.pps.lock();
+            let pps = p.update(s.packets_received);
             serde_json::to_string(&s.snapshot(pps)).unwrap()
         };
-        if socket.send(Message::Text(payload)).await.is_err() {
+        if socket.send(Message::Text(payload.into())).await.is_err() {
             break;
         }
     }

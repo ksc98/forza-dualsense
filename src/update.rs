@@ -18,7 +18,7 @@ pub enum Status {
     Idle,
     Disabled,
     Checking,
-    UpToDate { version: String },
+    UpToDate,
     Applied { version: String },
     Failed { error: String },
 }
@@ -38,7 +38,7 @@ pub fn check_and_apply() -> Status {
         .and_then(|u| u.update());
 
     match outcome {
-        Ok(self_update::Status::UpToDate(v)) => Status::UpToDate { version: v },
+        Ok(self_update::Status::UpToDate(_)) => Status::UpToDate,
         Ok(self_update::Status::Updated(v)) => Status::Applied { version: v },
         Err(e) => Status::Failed { error: e.to_string() },
     }
