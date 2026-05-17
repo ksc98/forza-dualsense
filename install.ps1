@@ -59,7 +59,15 @@ try {
     $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers
     $asset = $release.assets | Where-Object { $_.name -match "x86_64-pc-windows-msvc\.zip$" } | Select-Object -First 1
 } catch {
-    Info "No release available yet"
+    $status = $null
+    try { $status = $_.Exception.Response.StatusCode.value__ } catch { }
+    if ($status -eq 404) {
+        Info "No release published yet — building from source"
+    } elseif ($status -eq 403) {
+        Info "GitHub API rate-limited from this network — building from source"
+    } else {
+        Info "Could not query latest release ($($_.Exception.Message)) — building from source"
+    }
 }
 
 if ($asset) {
