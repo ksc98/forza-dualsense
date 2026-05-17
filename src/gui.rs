@@ -8,7 +8,6 @@ use crate::settings::Settings;
 use crate::state::{HidStatus, SharedState};
 #[cfg(windows)]
 use crate::tray::Tray;
-use crate::triggers::Effect;
 use crate::update::Status as UpdateStatus;
 
 pub struct GuiApp {
@@ -189,7 +188,7 @@ impl eframe::App for GuiApp {
                         update_banner(ui, &snapshot.update_status);
                         stat_strip(ui, &snapshot);
                         ui.add_space(12.0);
-                        triggers_section(ui, &snapshot);
+                        curves_section(ui, &snapshot);
                         ui.add_space(12.0);
                         diagnostics(ui, &snapshot);
                     });
@@ -213,6 +212,15 @@ impl GuiApp {
         let s = self.state.lock();
         let logs = s.logs.0.lock().snapshot();
 
+        // Curve cursor sits at the game's reported press when telemetry
+        // is alive, otherwise the controller's actual L2/R2 if we have
+        // one cached. Falls back to 0 so the graph still draws cleanly.
+        let live = if s.telemetry.on {
+            (s.telemetry.brake, s.telemetry.accel)
+        } else {
+            s.last_trigger_input.unwrap_or((0, 0))
+        };
+
         SnapshotForUi {
             hid_status: s.hid_status,
             hid_transport: s.hid_transport.map(|t| match t {
@@ -226,8 +234,8 @@ impl GuiApp {
             packets: s.packets_received,
             seconds_since_packet: s.last_packet_at.map(|t| t.elapsed().as_secs_f32()),
             telemetry: s.telemetry,
-            l2: s.last_l2,
-            r2: s.last_r2,
+            live_l2: live.0,
+            live_r2: live.1,
             web_url: s.web_url.clone(),
             settings: s.settings.clone(),
             update_status: s.update_status.clone(),
@@ -246,8 +254,11 @@ struct SnapshotForUi {
     packets: u64,
     seconds_since_packet: Option<f32>,
     telemetry: crate::telemetry::Telemetry,
-    l2: Effect,
-    r2: Effect,
+    /// L2/R2 trigger positions to display on the live cursor. Either
+    /// the game's reported brake/accel, or the controller's analog
+    /// inputs when no telemetry is arriving.
+    live_l2: u8,
+    live_r2: u8,
     web_url: String,
     settings: Settings,
     update_status: UpdateStatus,
@@ -357,54 +368,137 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: String, value_color: Color32
 }
 
 // ────────────────────────────────────────────────────────────────────
-// Trigger effect cards
+// Live force-curve graphs
 // ────────────────────────────────────────────────────────────────────
+//
+// Force-vs-trigger-position plots. Shows the curve the user has tuned
+// up alongside their live trigger position. Replaces the old "L2/R2
+// effect" cards which only told you the abstract mode — these directly
+// show what configuration changes are doing, and where on the curve
+// you currently are.
 
-fn triggers_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
-    ui.label(RichText::new("Trigger effects").size(16.0).strong());
+fn curves_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
+    ui.label(RichText::new("Force curves").size(16.0).strong());
     ui.add_space(4.0);
+    let total_w = ui.available_width();
+    let card_w = ((total_w - 12.0) * 0.5).max(280.0);
     ui.horizontal(|ui| {
-        effect_card(ui, "L2  ·  BRAKE", &snap.l2, BRAKE);
-        effect_card(ui, "R2  ·  THROTTLE", &snap.r2, THROTTLE);
+        curve_card(
+            ui,
+            "L2  ·  BRAKE",
+            BRAKE,
+            card_w,
+            snap.live_l2,
+            |v| crate::controller::brake_ramp(v, &snap.settings),
+            &brake_markers(&snap.settings),
+        );
+        curve_card(
+            ui,
+            "R2  ·  THROTTLE",
+            THROTTLE,
+            card_w,
+            snap.live_r2,
+            |v| {
+                crate::controller::ramp(
+                    v,
+                    snap.settings.accel_deadzone,
+                    0,
+                    snap.settings.throttle_stiffness,
+                    1.0,
+                    snap.settings.throttle_wall_engage_at,
+                )
+            },
+            &throttle_markers(&snap.settings),
+        );
     });
 }
 
-fn effect_card(ui: &mut egui::Ui, title: &str, eff: &Effect, accent: Color32) {
+struct CurveMarker {
+    /// Trigger-position the marker sits at (0..255).
+    x: u8,
+    /// Short label drawn near the line.
+    label: &'static str,
+}
+
+fn brake_markers(s: &Settings) -> Vec<CurveMarker> {
+    vec![
+        CurveMarker { x: s.brake_deadzone, label: "deadzone" },
+        CurveMarker { x: s.brake_bite_point, label: "bite" },
+        CurveMarker { x: s.brake_wall_engage_at, label: "wall" },
+    ]
+}
+
+fn throttle_markers(s: &Settings) -> Vec<CurveMarker> {
+    vec![
+        CurveMarker { x: s.accel_deadzone, label: "deadzone" },
+        CurveMarker { x: s.throttle_wall_engage_at, label: "wall" },
+    ]
+}
+
+fn curve_card(
+    ui: &mut egui::Ui,
+    title: &str,
+    accent: Color32,
+    width: f32,
+    live: u8,
+    force_at: impl Fn(u8) -> f32,
+    markers: &[CurveMarker],
+) {
+    use egui_plot::{Line, Plot, PlotPoints, VLine};
+
     egui::Frame::new()
         .fill(CARD_BG)
         .corner_radius(8)
         .inner_margin(egui::Margin::symmetric(14, 10))
         .show(ui, |ui| {
-            ui.set_min_width(280.0);
-            ui.vertical(|ui| {
-                ui.label(RichText::new(title).small().strong().color(DIM));
-                ui.add_space(4.0);
-                let (mode, detail) = describe_effect(eff);
-                ui.label(RichText::new(mode).size(15.0).color(accent).strong().monospace());
-                if !detail.is_empty() {
-                    ui.label(RichText::new(detail).color(DIM).monospace().small());
-                }
-                ui.add_space(4.0);
-                ui.add(
-                    egui::ProgressBar::new(eff.display_force())
-                        .desired_height(8.0)
-                        .fill(accent),
-                );
-            });
-        });
-}
+            ui.set_width(width);
+            ui.label(RichText::new(title).small().strong().color(DIM));
+            ui.add_space(2.0);
 
-fn describe_effect(eff: &Effect) -> (String, String) {
-    match *eff {
-        Effect::Off => ("OFF".into(), String::new()),
-        Effect::Rigid { force } => ("RIGID".into(), format!("force {force}")),
-        Effect::Vibration { freq, amp } => ("VIBRATION".into(), format!("{freq} Hz · amp {amp}")),
-        Effect::VibrationWall { freq, amp_strength, wall_zones } => (
-            "WALL PULSE".into(),
-            format!("{freq} Hz · amp {amp_strength} · zones {wall_zones}"),
-        ),
-        Effect::Feedback { .. } => ("WALL".into(), String::new()),
-    }
+            // Sample the curve every 2 raw-pedal steps — fine enough that
+            // the steep brake-bite segment doesn't visibly stair-step.
+            let pts: PlotPoints = (0..=128u32)
+                .map(|i| {
+                    let x = (i * 2).min(255) as u8;
+                    [x as f64, force_at(x) as f64]
+                })
+                .collect();
+
+            let plot_id = format!("curve_{title}");
+            let live_force = force_at(live);
+
+            Plot::new(plot_id)
+                .height(160.0)
+                .show_axes([true, true])
+                .show_grid([true, true])
+                .include_x(0.0)
+                .include_x(255.0)
+                .include_y(0.0)
+                .include_y(255.0)
+                .allow_drag(false)
+                .allow_zoom(false)
+                .allow_scroll(false)
+                .show_x(false)
+                .show_y(false)
+                .show(ui, |p| {
+                    for m in markers {
+                        p.vline(
+                            VLine::new(m.label, m.x as f64)
+                                .color(Color32::from_rgba_premultiplied(120, 130, 150, 90)),
+                        );
+                    }
+                    p.line(Line::new("force", pts).color(accent).width(2.0));
+                    p.vline(VLine::new("pos", live as f64).color(OK).width(2.0));
+                });
+
+            ui.add_space(2.0);
+            ui.label(
+                RichText::new(format!("pos {live} → force {:.0}", live_force))
+                    .color(DIM)
+                    .monospace()
+                    .small(),
+            );
+        });
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -607,17 +701,13 @@ fn section_system(ui: &mut egui::Ui, s: &mut Settings) -> bool {
         .checkbox(&mut s.enable_auto_update, "Check for updates on launch")
         .changed();
 
-    header(ui, "Debug");
+    header(ui, "Idle preview");
     c |= ui
-        .checkbox(
-            &mut s.enable_test_force,
-            "Drive triggers from sliders when game is not streaming",
-        )
+        .checkbox(&mut s.enable_idle_preview, "Engage triggers when no game is running")
         .changed();
-    c |= slider_u8(ui, "Pedal press", &mut s.test_press, 0, 255);
     ui.label(
         RichText::new(
-            "Drives both triggers at this press level through the same brake and throttle force curves the game uses — feel the configured resistance without launching Forza.",
+            "Drives both triggers at a mid-pedal press through the configured force curves so you can feel changes without launching Forza.",
         )
         .color(DIM)
         .small(),

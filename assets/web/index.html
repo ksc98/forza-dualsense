@@ -114,26 +114,6 @@
     font-weight: 600;
   }
   .banner.warn { background: #2a1f10; color: #ffb43c; font-weight: 500; }
-  .trig .force-bar {
-    height: 6px;
-    background: var(--bg);
-    border-radius: 3px;
-    margin-top: 8px;
-    overflow: hidden;
-  }
-  .trig .force-bar .fill {
-    height: 100%;
-    transition: width 60ms linear;
-  }
-  .trig.l2 .force-bar .fill { background: var(--bad); }
-  .trig.r2 .force-bar .fill { background: var(--ok); }
-  .legend { font-size: 10px; color: var(--dim); display: flex; gap: 10px; }
-  .legend span::before {
-    content: "■";
-    margin-right: 4px;
-  }
-  .legend .l-thr::before { color: var(--ok); }
-  .legend .l-brk::before { color: var(--bad); }
   .bar {
     flex: 1;
     height: 12px;
@@ -147,16 +127,19 @@
   .fill.accel { background: var(--accent); }
   .fill.rpm   { background: linear-gradient(90deg, #50dc78 0%, #ffce40 70%, var(--bad) 100%); }
   .value { width: 80px; text-align: right; font-variant-numeric: tabular-nums; }
-  .triggers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .trig {
+  .curves { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .curve {
     background: var(--panel2);
     border: 1px solid var(--line);
     border-radius: 8px;
     padding: 12px;
   }
-  .trig .label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.6px; }
-  .trig .mode  { font-size: 16px; margin-top: 4px; font-weight: 600; }
-  .trig .params { font-size: 12px; color: var(--dim); margin-top: 4px; font-family: ui-monospace, Menlo, monospace; }
+  .curve .label { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.6px; }
+  .curve svg { display: block; width: 100%; height: 160px; margin-top: 6px; }
+  .curve .readout {
+    font-size: 11px; color: var(--dim); margin-top: 6px;
+    font-family: ui-monospace, Menlo, monospace;
+  }
   details summary { cursor: pointer; color: var(--dim); margin-bottom: 6px; }
   details[open] summary { color: var(--text); }
   .settings .group { margin-bottom: 16px; }
@@ -236,19 +219,17 @@
     </div>
 
     <div class="card" style="margin-top:16px">
-      <h2>Trigger effects</h2>
-      <div class="triggers">
-        <div class="trig l2">
+      <h2>Force curves</h2>
+      <div class="curves">
+        <div class="curve">
           <div class="label">L2 · Brake</div>
-          <div class="mode" id="l2-mode">—</div>
-          <div class="params" id="l2-params"></div>
-          <div class="force-bar"><div class="fill" id="l2-force" style="width:0"></div></div>
+          <svg id="curve-brake" viewBox="0 0 255 255" preserveAspectRatio="none"></svg>
+          <div class="readout" id="curve-brake-readout">—</div>
         </div>
-        <div class="trig r2">
+        <div class="curve">
           <div class="label">R2 · Throttle</div>
-          <div class="mode" id="r2-mode">—</div>
-          <div class="params" id="r2-params"></div>
-          <div class="force-bar"><div class="fill" id="r2-force" style="width:0"></div></div>
+          <svg id="curve-throttle" viewBox="0 0 255 255" preserveAspectRatio="none"></svg>
+          <div class="readout" id="curve-throttle-readout">—</div>
         </div>
       </div>
     </div>
@@ -324,8 +305,7 @@ const SETTINGS_GROUPS = [
     { k: "enable_auto_update",   kind: "bool" },
   ]},
   { title: "Debug", fields: [
-    { k: "enable_test_force", kind: "bool" },
-    { k: "test_press",        kind: "u8" },
+    { k: "enable_idle_preview", kind: "bool" },
   ]},
 ];
 
@@ -411,26 +391,64 @@ async function refreshSettings() {
   suppressPost = false;
 }
 
-function fmtEffect(eff) {
-  if (!eff || eff.kind === "off") return ["OFF", ""];
-  if (eff.kind === "rigid") return ["RIGID", `force=${eff.force}`];
-  if (eff.kind === "vibration") return ["VIBRATION", `freq=${eff.freq}Hz  amp=${eff.amp}`];
-  if (eff.kind === "vibration_wall") return ["WALL_PULSE", `freq=${eff.freq}Hz  amp=${eff.amp_strength}  zones=${eff.wall_zones}`];
-  if (eff.kind === "feedback") return ["WALL", ""];
-  return [eff.kind, ""];
+// ─── Force-curve math (mirrors src/controller.rs) ────────────────
+// Sample 128 points across the 0..255 trigger range and feed them
+// through the same piecewise math the Rust controller uses, so the SVG
+// preview here matches what the firmware actually applies.
+function brakeForceAt(v, s) {
+  const baseline = s.brake_baseline_force;
+  const deadzone = s.brake_deadzone;
+  if (v < deadzone) return baseline;
+  const bitePoint = Math.max(s.brake_bite_point, deadzone + 1);
+  const biteSpan = Math.max(bitePoint - deadzone, 1);
+  const biteForce = s.brake_bite_force;
+  if (v < bitePoint) {
+    const r = (v - deadzone) / biteSpan;
+    return baseline + (biteForce - baseline) * r;
+  }
+  const wallAt = Math.max(s.brake_wall_engage_at, bitePoint + 1);
+  const wallSpan = Math.max(wallAt - bitePoint, 1);
+  const top = Math.min(v, wallAt);
+  const r = (top - bitePoint) / wallSpan;
+  return biteForce + (s.brake_max_force - biteForce) * Math.pow(r, s.brake_curve);
 }
 
-function effectForce(eff) {
-  if (!eff) return 0;
-  if (eff.kind === "off") return 0;
-  if (eff.kind === "rigid") return (eff.force ?? 0) / 255;
-  if (eff.kind === "vibration") return (eff.amp ?? 0) / 255;
-  if (eff.kind === "vibration_wall") return (eff.amp_strength ?? 0) / 8;
-  if (eff.kind === "feedback") {
-    const zones = eff.zones || [];
-    return zones.length ? Math.max(...zones) / 8 : 0;
+function throttleForceAt(v, s) {
+  const deadzone = s.accel_deadzone;
+  if (v < deadzone) return 0;
+  const ceiling = s.throttle_wall_engage_at;
+  const span = Math.max(ceiling - deadzone, 1);
+  const r = Math.min((v - deadzone) / span, 1);
+  return s.throttle_stiffness * r; // linear; curve=1.0
+}
+
+const CURVE_ACCENTS = { brake: "#ff5a64", throttle: "#50dc78" };
+
+function renderCurve(svgId, readoutId, settings, live, forceFn, markers, color) {
+  const svg = document.getElementById(svgId);
+  if (!svg) return;
+  const points = [];
+  for (let i = 0; i <= 128; i++) {
+    const x = Math.min(i * 2, 255);
+    const y = forceFn(x, settings);
+    // SVG Y grows down; flip so 0 is at the bottom.
+    points.push(`${x},${255 - Math.max(0, Math.min(255, y))}`);
   }
-  return 0;
+  const marks = markers
+    .map(
+      (m) =>
+        `<line x1="${m.x}" y1="0" x2="${m.x}" y2="255" stroke="#788090" stroke-width="1" stroke-dasharray="3,3" opacity="0.5"/>` +
+        `<text x="${m.x + 2}" y="12" font-size="10" fill="#788090">${m.label}</text>`,
+    )
+    .join("");
+  svg.innerHTML =
+    `<rect x="0" y="0" width="255" height="255" fill="#161b22"/>` +
+    marks +
+    `<polyline points="${points.join(" ")}" fill="none" stroke="${color}" stroke-width="2"/>` +
+    `<line x1="${live}" y1="0" x2="${live}" y2="255" stroke="#50dc78" stroke-width="2"/>`;
+  const liveForce = forceFn(live, settings);
+  document.getElementById(readoutId).textContent =
+    `pos ${live} → force ${liveForce.toFixed(0)}`;
 }
 
 function renderUpdateBanner(status) {
@@ -483,15 +501,35 @@ function render(snap) {
   raceEl.classList.toggle("on", t.on);
   raceEl.classList.toggle("off", !t.on);
 
-  // Trigger effect cards.
-  const [lMode, lParams] = fmtEffect(snap.l2);
-  document.getElementById("l2-mode").textContent = lMode;
-  document.getElementById("l2-params").textContent = lParams;
-  document.getElementById("l2-force").style.width = (effectForce(snap.l2) * 100) + "%";
-  const [rMode, rParams] = fmtEffect(snap.r2);
-  document.getElementById("r2-mode").textContent = rMode;
-  document.getElementById("r2-params").textContent = rParams;
-  document.getElementById("r2-force").style.width = (effectForce(snap.r2) * 100) + "%";
+  // Force curves with live cursor + threshold markers.
+  const s = snap.settings || currentSettings;
+  if (s) {
+    renderCurve(
+      "curve-brake",
+      "curve-brake-readout",
+      s,
+      snap.live_l2 ?? 0,
+      brakeForceAt,
+      [
+        { x: s.brake_deadzone, label: "deadzone" },
+        { x: s.brake_bite_point, label: "bite" },
+        { x: s.brake_wall_engage_at, label: "wall" },
+      ],
+      CURVE_ACCENTS.brake,
+    );
+    renderCurve(
+      "curve-throttle",
+      "curve-throttle-readout",
+      s,
+      snap.live_r2 ?? 0,
+      throttleForceAt,
+      [
+        { x: s.accel_deadzone, label: "deadzone" },
+        { x: s.throttle_wall_engage_at, label: "wall" },
+      ],
+      CURVE_ACCENTS.throttle,
+    );
+  }
 
   // Diagnostics (collapsed by default; mirrors native).
   const slipRatio = Math.max(

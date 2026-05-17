@@ -78,12 +78,10 @@ pub struct Settings {
 
     pub enable_auto_update: bool,
 
-    /// When no telemetry is arriving, synthesise inputs at this press
-    /// level and run them through the real brake/throttle force curves.
-    /// One slider drives both triggers — the point is to feel the
-    /// configured resistance, not to fiddle with input.
-    pub enable_test_force: bool,
-    pub test_press: u8,
+    /// When no telemetry is arriving, drive both triggers as if the car
+    /// were on-track at a mid-pedal press. Lets you feel the configured
+    /// resistance while tuning without having to launch Forza.
+    pub enable_idle_preview: bool,
 }
 
 impl Default for Settings {
@@ -145,8 +143,7 @@ impl Default for Settings {
 
             enable_auto_update: true,
 
-            enable_test_force: false,
-            test_press: 255,
+            enable_idle_preview: true,
         }
     }
 }

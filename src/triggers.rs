@@ -53,20 +53,6 @@ impl Effect {
         Effect::VibrationWall { freq, amp_strength: s, wall_zones: w }
     }
 
-    /// Coarse 0..=1 magnitude for visualisation. Not used by the HID path.
-    pub fn display_force(&self) -> f32 {
-        match *self {
-            Effect::Off => 0.0,
-            Effect::Rigid { force } => force as f32 / 255.0,
-            Effect::Vibration { amp, .. } => amp as f32 / 255.0,
-            Effect::VibrationWall { amp_strength, .. } => amp_strength as f32 / 8.0,
-            Effect::Feedback { zones } => {
-                let max = zones.iter().copied().max().unwrap_or(0);
-                max as f32 / 8.0
-            }
-        }
-    }
-
     /// Static firmware wall — top `n` zones (1..=9) maxed at strength 8.
     pub fn build_wall(zones: u8) -> Self {
         let n = zones.clamp(1, 9) as usize;

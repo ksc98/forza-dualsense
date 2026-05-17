@@ -7,7 +7,6 @@ use serde::Serialize;
 use crate::logs::SharedLogs;
 use crate::settings::Settings;
 use crate::telemetry::Telemetry;
-use crate::triggers::Effect;
 use crate::update::Status as UpdateStatus;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -25,8 +24,6 @@ pub struct AppState {
     pub hid_transport: Option<crate::hid::Transport>,
     pub hid_serial: String,
     pub hid_error: String,
-    pub last_l2: Effect,
-    pub last_r2: Effect,
     pub packets_received: u64,
     pub last_packet_at: Option<Instant>,
     pub started_at: Instant,
@@ -35,6 +32,11 @@ pub struct AppState {
     pub last_settings_save_error: String,
     pub update_status: UpdateStatus,
     pub logs: SharedLogs,
+    /// Latest analog L2/R2 readings from the controller's HID input
+    /// report, if any. Populated by the HID worker and read by the GUI
+    /// so the live-position cursor on the curve graph follows the
+    /// physical trigger when no game telemetry is arriving.
+    pub last_trigger_input: Option<(u8, u8)>,
 }
 
 impl AppState {
@@ -47,8 +49,6 @@ impl AppState {
             hid_transport: None,
             hid_serial: String::new(),
             hid_error: String::new(),
-            last_l2: Effect::Off,
-            last_r2: Effect::Off,
             packets_received: 0,
             last_packet_at: None,
             started_at: Instant::now(),
@@ -56,6 +56,7 @@ impl AppState {
             web_url: String::new(),
             last_settings_save_error: String::new(),
             update_status: UpdateStatus::default(),
+            last_trigger_input: None,
         }
     }
 }
@@ -78,8 +79,11 @@ pub struct StateSnapshot<'a> {
     pub packets_per_sec: f32,
     pub seconds_since_packet: Option<f32>,
     pub telemetry: Telemetry,
-    pub l2: Effect,
-    pub r2: Effect,
+    /// L2/R2 trigger positions for the live cursor on the curve graphs.
+    /// Either the game's brake/accel when telemetry is active, or the
+    /// controller's actual analog inputs when idle.
+    pub live_l2: u8,
+    pub live_r2: u8,
     pub uptime_s: f32,
     pub settings: &'a Settings,
     pub update_status: &'a UpdateStatus,
@@ -87,6 +91,11 @@ pub struct StateSnapshot<'a> {
 
 impl AppState {
     pub fn snapshot(&self, pps: f32) -> StateSnapshot<'_> {
+        let (live_l2, live_r2) = if self.telemetry.on {
+            (self.telemetry.brake, self.telemetry.accel)
+        } else {
+            self.last_trigger_input.unwrap_or((0, 0))
+        };
         StateSnapshot {
             hid_status: self.hid_status,
             hid_transport: self.hid_transport.map(|t| match t {
@@ -104,8 +113,8 @@ impl AppState {
                 .last_packet_at
                 .map(|t| t.elapsed().as_secs_f32()),
             telemetry: self.telemetry,
-            l2: self.last_l2,
-            r2: self.last_r2,
+            live_l2,
+            live_r2,
             uptime_s: self.started_at.elapsed().as_secs_f32(),
             settings: &self.settings,
             update_status: &self.update_status,

@@ -4,13 +4,14 @@ use crate::settings::Settings;
 use crate::telemetry::Telemetry;
 use crate::triggers::{Effect, RAW_MAX};
 
-/// Build a synthetic telemetry frame from the debug sliders so the
-/// controller can run its full pipeline without a live Forza session.
-fn synth_telemetry(s: &Settings) -> Telemetry {
+/// Build a synthetic telemetry frame fed from the controller's actual
+/// L2/R2 analog values, so idle preview drives the configured curves
+/// with the user's real physical press — no magic constants.
+fn synth_telemetry(brake: u8, accel: u8) -> Telemetry {
     Telemetry {
         on: true,
-        brake: s.test_press,
-        accel: s.test_press,
+        brake,
+        accel,
         speed_kmh: 60.0,
         rpm: 3500.0,
         max_rpm: 8000.0,
@@ -28,7 +29,7 @@ pub struct TriggerAnimations {
     rev_until: Option<Instant>,
 }
 
-fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceiling: u8) -> f32 {
+pub(crate) fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceiling: u8) -> f32 {
     if value < deadzone {
         return baseline as f32;
     }
@@ -41,7 +42,7 @@ fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceilin
 /// the player can modulate just like a real pedal; the upper segment
 /// ramps steeply to `max_force` so the lock-up zone takes deliberate
 /// effort to enter. `curve` shapes only the bite-zone steepness.
-fn brake_ramp(value: u8, s: &Settings) -> f32 {
+pub(crate) fn brake_ramp(value: u8, s: &Settings) -> f32 {
     let deadzone = s.brake_deadzone;
     let baseline = s.brake_baseline_force as f32;
     if value < deadzone {
@@ -197,10 +198,16 @@ impl Controller {
     /// which case the synthetic brake/throttle inputs are fed through
     /// the normal force-curve pipeline so the user feels the same
     /// resistance the game would produce.
-    pub fn update(&mut self, t: &Telemetry, s: &Settings) -> (Effect, Effect) {
+    pub fn update(
+        &mut self,
+        t: &Telemetry,
+        s: &Settings,
+        idle_press: Option<(u8, u8)>,
+    ) -> (Effect, Effect) {
         if !t.on {
-            if s.enable_test_force {
-                let fake = synth_telemetry(s);
+            if s.enable_idle_preview {
+                let (l2, r2) = idle_press.unwrap_or((0, 0));
+                let fake = synth_telemetry(l2, r2);
                 return self.update_active(&fake, s);
             }
             return (Effect::Off, Effect::Off);
@@ -216,7 +223,7 @@ impl Controller {
         if !s.enable_redline_rumble {
             return (0, 0);
         }
-        let active = t.on || s.enable_test_force;
+        let active = t.on || s.enable_idle_preview;
         if !active || t.max_rpm <= 0.0 {
             return (0, 0);
         }

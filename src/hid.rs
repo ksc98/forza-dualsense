@@ -117,6 +117,25 @@ impl DualSense {
         self.transport
     }
 
+    /// Non-blocking peek at the latest HID input report. Returns
+    /// `(L2, R2)` analog values 0..255 when a fresh report is waiting,
+    /// `None` otherwise. Used by the idle-preview path so the user
+    /// feels actual physical presses instead of a synthesised value.
+    ///
+    /// Layouts:
+    ///   USB report 0x01: byte 5 = L2, byte 6 = R2.
+    ///   BT  report 0x31: same payload prefixed with [id, seq], so
+    ///                    byte 6 = L2, byte 7 = R2.
+    pub fn read_inputs(&self) -> Option<(u8, u8)> {
+        let mut buf = [0u8; 78];
+        let n = self.device.read_timeout(&mut buf, 0).ok()?;
+        match self.transport {
+            Transport::Usb if n >= 7 && buf[0] == 0x01 => Some((buf[5], buf[6])),
+            Transport::Bluetooth if n >= 8 && buf[0] == 0x31 => Some((buf[6], buf[7])),
+            _ => None,
+        }
+    }
+
     pub fn write_triggers(&self, l2: &Effect, r2: &Effect) -> Result<()> {
         self.write_outputs(l2, r2, 0, 0)
     }

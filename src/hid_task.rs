@@ -37,8 +37,6 @@ pub fn run(state: SharedState) {
                 let mut s = state.lock();
                 s.hid_status = HidStatus::Disconnected;
                 s.hid_transport = None;
-                s.last_l2 = Effect::Off;
-                s.last_r2 = Effect::Off;
             }
             Err(e) => {
                 {
@@ -93,6 +91,14 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             next_deadline = now;
         }
 
+        // Pull the freshest HID input report (non-blocking). When the
+        // game is dead, idle preview uses these analog values so the
+        // user feels their own physical press through the curves.
+        let idle_press = dev.read_inputs();
+        if let Some(p) = idle_press {
+            state.lock().last_trigger_input = Some(p);
+        }
+
         let (telemetry, settings, packets) = {
             let s = state.lock();
             (s.telemetry, s.settings.clone(), s.packets_received)
@@ -107,13 +113,8 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             dev.write_triggers(&Effect::Off, &Effect::Off)?;
         }
 
-        let (l2, r2) = controller.update(&telemetry, &settings);
+        let (l2, r2) = controller.update(&telemetry, &settings, idle_press);
         let (rumble_heavy, rumble_light) = controller.rumble(&telemetry, &settings);
         dev.write_outputs(&l2, &r2, rumble_heavy, rumble_light)?;
-        {
-            let mut s = state.lock();
-            s.last_l2 = l2;
-            s.last_r2 = r2;
-        }
     }
 }
