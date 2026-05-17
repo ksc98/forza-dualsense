@@ -555,6 +555,10 @@ fn diagnostics(ui: &mut egui::Ui, snap: &SnapshotForUi) {
             ui.label(format!("Controller serial: {}", snap.hid_serial));
         }
         ui.label(format!(
+            "Live L2/R2: {} / {}   (peak {} / {})",
+            snap.live_l2, snap.live_r2, snap.max_l2_seen, snap.max_r2_seen,
+        ));
+        ui.label(format!(
             "Slip — ratio {:.2} · combined {:.2}",
             snap.telemetry.max_slip_ratio(),
             snap.telemetry.max_combined_slip()

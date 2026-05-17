@@ -637,6 +637,8 @@ function render(snap) {
   );
   const diag = document.getElementById("diag");
   diag.textContent =
+    `live L2 / R2     : ${snap.live_l2} / ${snap.live_r2}\n` +
+    `peak L2 / R2     : ${snap.max_l2_seen} / ${snap.max_r2_seen}\n` +
     `packets received : ${snap.packets_received}\n` +
     `uptime           : ${snap.uptime_s.toFixed(0)}s\n` +
     `seconds since rx : ${snap.seconds_since_packet === null ? "never" : snap.seconds_since_packet.toFixed(1)}\n` +
