@@ -103,11 +103,11 @@ impl Default for Settings {
 
             enable_brake_resistance: true,
             brake_deadzone: 10,
-            brake_baseline_force: 15,
-            brake_bite_point: 200,
-            brake_bite_force: 60,
+            brake_baseline_force: 5,
+            brake_bite_point: 170,
+            brake_bite_force: 40,
             brake_max_force: 200,
-            brake_curve: 3.0,
+            brake_curve: 2.0,
             brake_wall_engage_at: 250,
             brake_wall_release_at: 220,
 

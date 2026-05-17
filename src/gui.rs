@@ -1,20 +1,47 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
+#[cfg(windows)]
+use eframe::egui::ViewportCommand;
 use egui_plot::{Line, Plot, PlotPoints, VLine};
+#[cfg(windows)]
+use tray_icon::{menu::MenuEvent, TrayIconEvent};
 
 use crate::settings::Settings;
 use crate::state::{HidStatus, HistorySample, SharedState};
+#[cfg(windows)]
+use crate::tray::Tray;
 use crate::triggers::Effect;
 use crate::update::Status as UpdateStatus;
 
 pub struct GuiApp {
     state: SharedState,
+    #[cfg(windows)]
+    tray: Option<Tray>,
 }
 
 impl GuiApp {
     pub fn new(state: SharedState, cc: &eframe::CreationContext<'_>) -> Self {
         apply_style(&cc.egui_ctx);
-        Self { state }
+        #[cfg(windows)]
+        let tray = match Tray::build() {
+            Ok(t) => Some(t),
+            Err(e) => {
+                tracing::warn!("Tray icon unavailable: {e}");
+                None
+            }
+        };
+        Self {
+            state,
+            #[cfg(windows)]
+            tray,
+        }
     }
+}
+
+#[cfg(windows)]
+fn restore_window(ctx: &egui::Context) {
+    ctx.send_viewport_cmd(ViewportCommand::Visible(true));
+    ctx.send_viewport_cmd(ViewportCommand::Minimized(false));
+    ctx.send_viewport_cmd(ViewportCommand::Focus);
 }
 
 // Palette.
@@ -66,6 +93,38 @@ impl eframe::App for GuiApp {
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
+
+        #[cfg(windows)]
+        if let Some(tray) = &self.tray {
+            // Drain tray-icon events. Tray callbacks fire on the
+            // message-pump thread; we read from the global channels
+            // each frame.
+            while let Ok(ev) = MenuEvent::receiver().try_recv() {
+                if ev.id == tray.show_id {
+                    restore_window(ctx);
+                } else if ev.id == tray.quit_id {
+                    std::process::exit(0);
+                }
+            }
+            while let Ok(ev) = TrayIconEvent::receiver().try_recv() {
+                // Restore on left-click release. We key on `Up` so a
+                // single click registers exactly once, not on both
+                // press and release.
+                if let TrayIconEvent::Click {
+                    button: tray_icon::MouseButton::Left,
+                    button_state: tray_icon::MouseButtonState::Up,
+                    ..
+                } = ev
+                {
+                    restore_window(ctx);
+                }
+            }
+            // Minimize -> hide to tray.
+            let minimized = ctx.input(|i| i.viewport().minimized).unwrap_or(false);
+            if minimized {
+                ctx.send_viewport_cmd(ViewportCommand::Visible(false));
+            }
+        }
 
         let snapshot = self.collect_snapshot();
 

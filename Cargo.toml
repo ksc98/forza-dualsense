@@ -2,7 +2,7 @@
 
 [package]
 name = "forza-dualsense"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "Adaptive trigger feedback for Forza Horizon on the DualSense controller"
 license = "MIT OR Apache-2.0"
@@ -42,6 +42,16 @@ dirs = "5"
 
 # Self-update against GitHub Releases
 self_update = { version = "0.41", default-features = false, features = ["rustls", "archive-zip", "compression-zip-deflate"] }
+
+# `image` decodes the embedded PNG into the RGBA the tray crate wants;
+# pulled in unconditionally because it's small and might also be useful
+# for other icon work later.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(windows)'.dependencies]
+# System-tray icon + minimize-to-tray. Windows-only because the Linux
+# build of `tray-icon` requires GTK, which we don't want to demand.
+tray-icon = "0.14"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

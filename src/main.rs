@@ -5,6 +5,7 @@ mod hid_task;
 mod settings;
 mod state;
 mod telemetry;
+mod tray;
 mod triggers;
 mod udp;
 mod update;

@@ -58,6 +58,27 @@ if (Test-Path $configDir) {
     Skip "Not present: $configDir"
 }
 
+# 5. Hosts file: remove the forza.dualsense entry the installer added.
+#    Marked with a trailing `# forza-dualsense` so we only touch our line.
+$hostsPath = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+Step "Removing hosts entry for forza.dualsense"
+if (Test-Path $hostsPath) {
+    try {
+        $lines = Get-Content $hostsPath -ErrorAction Stop
+        $kept  = $lines | Where-Object { $_ -notmatch '#\s*forza-dualsense\s*$' }
+        if ($kept.Count -ne $lines.Count) {
+            Set-Content -Path $hostsPath -Value $kept -ErrorAction Stop
+            Done "Removed hosts entry"
+        } else {
+            Skip "No hosts entry to remove"
+        }
+    } catch {
+        Skip "Could not edit $hostsPath (not admin?) — entry left in place"
+    }
+} else {
+    Skip "Not present: $hostsPath"
+}
+
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "  Forza DualSense uninstalled." -ForegroundColor Green

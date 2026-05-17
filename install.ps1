@@ -182,10 +182,43 @@ $lnk.IconLocation = (Join-Path $installDir "forza-dualsense.exe") + ",0"
 $lnk.Save()
 Done "Shortcut: $shortcut"
 
+# -----------------------------------------------------------------
+# 4. Friendly hostname: map http://forza.dualsense:5301 to localhost
+#    via the hosts file. Needs admin to write to system32. We try it
+#    and fall back to printing the manual command if we can't.
+# -----------------------------------------------------------------
+Step "Mapping http://forza.dualsense:5301 -> 127.0.0.1"
+$hostsPath  = Join-Path $env:SystemRoot "System32\drivers\etc\hosts"
+$hostsLine  = "127.0.0.1`tforza.dualsense  # forza-dualsense"
+$hostsAdded = $false
+if (Test-Path $hostsPath) {
+    $existing = Get-Content $hostsPath -ErrorAction SilentlyContinue
+    if ($existing | Where-Object { $_ -match '^\s*[^#].*\bforza\.dualsense\b' }) {
+        Info "hosts entry already present"
+        $hostsAdded = $true
+    } else {
+        try {
+            Add-Content -Path $hostsPath -Value "`n$hostsLine" -ErrorAction Stop
+            Done "Added hosts entry: $hostsLine"
+            $hostsAdded = $true
+        } catch {
+            Info "Not running as admin — can't edit $hostsPath"
+            Info "To enable the friendly URL, run this once in an elevated PowerShell:"
+            Info "  Add-Content -Path '$hostsPath' -Value `"`n$hostsLine`""
+        }
+    }
+} else {
+    Info "hosts file not found at $hostsPath — skipping friendly URL"
+}
+
 Write-Host ""
 Write-Host "================================================================" -ForegroundColor Green
 Write-Host "  Forza DualSense installed." -ForegroundColor Green
 Write-Host "  Open the Start Menu and search for: Forza DualSense" -ForegroundColor Green
 Write-Host "  Or run directly:  $installDir\forza-dualsense.exe" -ForegroundColor Green
-Write-Host "  Web UI: http://127.0.0.1:5301/ once it's running." -ForegroundColor Green
+if ($hostsAdded) {
+    Write-Host "  Web UI: http://forza.dualsense:5301/  (or http://127.0.0.1:5301/)" -ForegroundColor Green
+} else {
+    Write-Host "  Web UI: http://127.0.0.1:5301/  (run installer as admin to enable forza.dualsense)" -ForegroundColor Green
+}
 Write-Host "================================================================" -ForegroundColor Green
