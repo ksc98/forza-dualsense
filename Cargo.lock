@@ -1099,15 +1099,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "egui_plot"
-version = "0.27.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7854b86dc1c2d352c5270db3d600011daa913d6b554141a03939761323288a1"
-dependencies = [
- "egui",
-]
-
-[[package]]
 name = "emath"
 version = "0.27.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1251,7 +1242,7 @@ dependencies = [
 
 [[package]]
 name = "forza-dualsense"
-version = "0.1.5"
+version = "2026.5.17"
 dependencies = [
  "anyhow",
  "axum",
@@ -1260,7 +1251,6 @@ dependencies = [
  "dirs",
  "eframe",
  "egui",
- "egui_plot",
  "hidapi",
  "image 0.25.10",
  "mime_guess",

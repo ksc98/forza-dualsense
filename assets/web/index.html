@@ -74,32 +74,6 @@
   }
   .row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
   .row label { width: 110px; color: var(--dim); font-size: 12px; }
-  .plots .plot {
-    background: var(--panel2);
-    border-radius: 8px;
-    padding: 10px 12px 6px;
-    margin-bottom: 10px;
-  }
-  .plots .plot:last-child { margin-bottom: 0; }
-  .plots .plot .hd {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    margin-bottom: 4px;
-  }
-  .plots .plot .hd .lbl {
-    font-size: 11px;
-    color: var(--dim);
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  .plots .plot .hd .val {
-    font-family: ui-monospace, Menlo, monospace;
-    font-size: 16px;
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
-  }
-  .plots canvas { display: block; width: 100%; height: 90px; }
   .stats {
     display: grid;
     grid-template-columns: repeat(4, 1fr);
@@ -255,25 +229,6 @@
       <div class="stat"><div class="lbl">Race</div><div class="val race off" id="stat-race">idle</div></div>
     </div>
 
-    <div class="card plots">
-      <h2>Live charts</h2>
-      <div class="plot">
-        <div class="hd"><span class="lbl">Speed (km/h)</span><span class="val" id="plot-speed-val">—</span></div>
-        <canvas id="plot-speed"></canvas>
-      </div>
-      <div class="plot">
-        <div class="hd"><span class="lbl">RPM</span><span class="val" id="plot-rpm-val">—</span></div>
-        <canvas id="plot-rpm"></canvas>
-      </div>
-      <div class="plot">
-        <div class="hd">
-          <span class="lbl">Inputs</span>
-          <span class="legend"><span class="l-thr">throttle</span><span class="l-brk">brake</span></span>
-        </div>
-        <canvas id="plot-inputs"></canvas>
-      </div>
-    </div>
-
     <div class="card" style="margin-top:16px">
       <h2>Trigger effects</h2>
       <div class="triggers">
@@ -339,9 +294,7 @@ const SETTINGS_GROUPS = [
   { title: "Throttle (R2)", fields: [
     { k: "enable_throttle_resistance", kind: "bool" },
     { k: "accel_deadzone",             kind: "u8" },
-    { k: "throttle_baseline_force",    kind: "u8" },
-    { k: "throttle_max_force",         kind: "u8" },
-    { k: "throttle_curve",             kind: "f32", lo: 0.5, hi: 8 },
+    { k: "throttle_stiffness",         kind: "u8", lo: 0, hi: 60 },
     { k: "throttle_wall_engage_at",    kind: "u8" },
     { k: "throttle_wall_release_at",   kind: "u8" },
   ]},
@@ -372,164 +325,12 @@ const SETTINGS_GROUPS = [
   ]},
   { title: "Debug", fields: [
     { k: "enable_test_force", kind: "bool" },
-    { k: "test_brake",        kind: "u8" },
-    { k: "test_throttle",     kind: "u8" },
+    { k: "test_press",        kind: "u8" },
   ]},
 ];
 
 let currentSettings = null;
 let suppressPost = false;
-
-// ─── Live plots ────────────────────────────────────────────────────
-const PLOT_WINDOW_S = 20;
-const PLOT_CAPACITY = 600;
-const plotBuf = { t: [], speed: [], rpm: [], maxRpm: [], thr: [], brk: [] };
-let lastTickMs = performance.now();
-
-function pushPlotSample(snap) {
-  const now = performance.now() / 1000;
-  const t = snap.telemetry;
-  plotBuf.t.push(now);
-  plotBuf.speed.push(t.speed_kmh);
-  plotBuf.rpm.push(t.rpm);
-  plotBuf.maxRpm.push(t.max_rpm);
-  plotBuf.thr.push(t.accel / 255);
-  plotBuf.brk.push(t.brake / 255);
-  if (plotBuf.t.length > PLOT_CAPACITY) {
-    for (const k of Object.keys(plotBuf)) plotBuf[k].shift();
-  }
-}
-
-function fitCanvas(canvas) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = canvas.clientWidth;
-  const h = canvas.clientHeight;
-  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
-    canvas.width = Math.round(w * dpr);
-    canvas.height = Math.round(h * dpr);
-  }
-  const ctx = canvas.getContext("2d");
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  return { ctx, w, h };
-}
-
-function drawSeries(canvas, ts, vals, color, opts = {}) {
-  const { ctx, w, h } = fitCanvas(canvas);
-  ctx.clearRect(0, 0, w, h);
-
-  if (ts.length < 2) return;
-
-  const now = ts[ts.length - 1];
-  const tMin = now - PLOT_WINDOW_S;
-
-  let yMax = opts.yMax;
-  let yMin = opts.yMin ?? 0;
-  if (yMax === undefined) {
-    yMax = 0;
-    for (let i = 0; i < vals.length; i++) {
-      if (ts[i] < tMin) continue;
-      if (vals[i] > yMax) yMax = vals[i];
-    }
-    yMax = Math.max(yMax * 1.05, opts.yMinFloor ?? 1);
-  }
-
-  // Grid baseline.
-  ctx.strokeStyle = "#262d36";
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, h - 0.5);
-  ctx.lineTo(w, h - 0.5);
-  ctx.stroke();
-
-  const xOf = (t) => ((t - tMin) / PLOT_WINDOW_S) * w;
-  const yOf = (v) => h - ((v - yMin) / (yMax - yMin)) * h;
-
-  // Fill under the curve.
-  ctx.beginPath();
-  let started = false;
-  for (let i = 0; i < ts.length; i++) {
-    if (ts[i] < tMin) continue;
-    const x = xOf(ts[i]);
-    const y = yOf(vals[i]);
-    if (!started) { ctx.moveTo(x, h); ctx.lineTo(x, y); started = true; }
-    else ctx.lineTo(x, y);
-  }
-  if (started) {
-    ctx.lineTo(w, h);
-    ctx.closePath();
-    const fill = ctx.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, color + "55");
-    fill.addColorStop(1, color + "00");
-    ctx.fillStyle = fill;
-    ctx.fill();
-  }
-
-  // Line.
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  started = false;
-  for (let i = 0; i < ts.length; i++) {
-    if (ts[i] < tMin) continue;
-    const x = xOf(ts[i]);
-    const y = yOf(vals[i]);
-    if (!started) { ctx.moveTo(x, y); started = true; }
-    else ctx.lineTo(x, y);
-  }
-  if (started) ctx.stroke();
-}
-
-function drawDualSeries(canvas, ts, a, aColor, b, bColor) {
-  drawSeries(canvas, ts, a, aColor, { yMin: 0, yMax: 1 });
-  // Overlay second series without clearing.
-  const { ctx, w, h } = fitCanvas(canvas);
-  const now = ts[ts.length - 1];
-  const tMin = now - PLOT_WINDOW_S;
-  const xOf = (t) => ((t - tMin) / PLOT_WINDOW_S) * w;
-  const yOf = (v) => h - v * h;
-  ctx.strokeStyle = bColor;
-  ctx.lineWidth = 2;
-  ctx.lineJoin = "round";
-  ctx.beginPath();
-  let started = false;
-  for (let i = 0; i < ts.length; i++) {
-    if (ts[i] < tMin) continue;
-    const x = xOf(ts[i]);
-    const y = yOf(b[i]);
-    if (!started) { ctx.moveTo(x, y); started = true; }
-    else ctx.lineTo(x, y);
-  }
-  if (started) ctx.stroke();
-}
-
-function renderPlots(snap) {
-  pushPlotSample(snap);
-  const t = snap.telemetry;
-  const maxRpm = Math.max(...plotBuf.maxRpm, 8000);
-
-  document.getElementById("plot-speed-val").textContent = `${t.speed_kmh.toFixed(0)} km/h`;
-  document.getElementById("plot-rpm-val").textContent = `${Math.round(t.rpm)}`;
-
-  drawSeries(
-    document.getElementById("plot-speed"),
-    plotBuf.t, plotBuf.speed,
-    "#00b4ff",
-    { yMinFloor: 40 },
-  );
-  drawSeries(
-    document.getElementById("plot-rpm"),
-    plotBuf.t, plotBuf.rpm,
-    "#ffb43c",
-    { yMax: maxRpm },
-  );
-  drawDualSeries(
-    document.getElementById("plot-inputs"),
-    plotBuf.t,
-    plotBuf.thr, "#50dc78",
-    plotBuf.brk, "#ff5a64",
-  );
-}
 
 function renderSettings(settings) {
   const root = document.getElementById("settings-root");
@@ -649,7 +450,6 @@ function renderUpdateBanner(status) {
 }
 
 function render(snap) {
-  renderPlots(snap);
   renderUpdateBanner(snap.update_status);
   document.getElementById("version").textContent = `udp ${snap.udp_host}:${snap.udp_port}`;
 

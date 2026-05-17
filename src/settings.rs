@@ -46,9 +46,12 @@ pub struct Settings {
     // --- R2: Throttle ---
     pub enable_throttle_resistance: bool,
     pub accel_deadzone: u8,
-    pub throttle_baseline_force: u8,
-    pub throttle_max_force: u8,
-    pub throttle_curve: f32,
+    /// Single linear-stiffness control for the throttle. Force at the
+    /// wall edge equals this value; below the wall it ramps linearly
+    /// from 0 at the deadzone. A real gas pedal is linear — one knob
+    /// matches the mental model and avoids fatigue from sustained
+    /// non-linear top-end force.
+    pub throttle_stiffness: u8,
     pub throttle_wall_engage_at: u8,
     pub throttle_wall_release_at: u8,
 
@@ -82,13 +85,12 @@ pub struct Settings {
 
     pub enable_auto_update: bool,
 
-    /// When no telemetry is arriving, synthesise inputs from these
-    /// sliders and run them through the real brake/throttle force
-    /// curves. Useful for feeling the configured resistance without
-    /// having to launch Forza.
+    /// When no telemetry is arriving, synthesise inputs at this press
+    /// level and run them through the real brake/throttle force curves.
+    /// One slider drives both triggers — the point is to feel the
+    /// configured resistance, not to fiddle with input.
     pub enable_test_force: bool,
-    pub test_brake: u8,
-    pub test_throttle: u8,
+    pub test_press: u8,
 }
 
 impl Default for Settings {
@@ -104,10 +106,13 @@ impl Default for Settings {
             enable_brake_resistance: true,
             brake_deadzone: 10,
             brake_baseline_force: 5,
-            brake_bite_point: 170,
-            brake_bite_force: 40,
+            // At ~80% physical press the player should feel ~50% of the
+            // lockup force — slow linear build, then a steep curved
+            // ramp to full stiffness over the final 20% of travel.
+            brake_bite_point: 204,
+            brake_bite_force: 100,
             brake_max_force: 200,
-            brake_curve: 2.0,
+            brake_curve: 2.5,
             brake_wall_engage_at: 250,
             brake_wall_release_at: 220,
 
@@ -124,9 +129,7 @@ impl Default for Settings {
 
             enable_throttle_resistance: true,
             accel_deadzone: 50,
-            throttle_baseline_force: 0,
-            throttle_max_force: 8,
-            throttle_curve: 5.0,
+            throttle_stiffness: 6,
             throttle_wall_engage_at: 250,
             throttle_wall_release_at: 200,
 
@@ -157,8 +160,7 @@ impl Default for Settings {
             enable_auto_update: true,
 
             enable_test_force: false,
-            test_brake: 0,
-            test_throttle: 0,
+            test_press: 255,
         }
     }
 }

@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -9,34 +8,6 @@ use crate::settings::Settings;
 use crate::telemetry::Telemetry;
 use crate::triggers::Effect;
 use crate::update::Status as UpdateStatus;
-
-/// Rolling window of telemetry samples for the live plots. Sized for
-/// roughly 20 seconds at 30 Hz.
-pub const HISTORY_CAPACITY: usize = 600;
-
-#[derive(Clone, Copy, Debug)]
-pub struct HistorySample {
-    pub t: f32,
-    pub speed_kmh: f32,
-    pub rpm: f32,
-    pub max_rpm: f32,
-    pub throttle: f32,
-    pub brake: f32,
-}
-
-#[derive(Default)]
-pub struct History {
-    pub samples: VecDeque<HistorySample>,
-}
-
-impl History {
-    pub fn push(&mut self, s: HistorySample) {
-        if self.samples.len() >= HISTORY_CAPACITY {
-            self.samples.pop_front();
-        }
-        self.samples.push_back(s);
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -62,7 +33,6 @@ pub struct AppState {
     pub web_url: String,
     pub last_settings_save_error: String,
     pub update_status: UpdateStatus,
-    pub history: History,
 }
 
 impl AppState {
@@ -83,7 +53,6 @@ impl AppState {
             web_url: String::new(),
             last_settings_save_error: String::new(),
             update_status: UpdateStatus::default(),
-            history: History::default(),
         }
     }
 }

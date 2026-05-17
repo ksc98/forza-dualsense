@@ -9,8 +9,8 @@ use crate::triggers::{Effect, RAW_MAX};
 fn synth_telemetry(s: &Settings) -> Telemetry {
     Telemetry {
         on: true,
-        brake: s.test_brake,
-        accel: s.test_throttle,
+        brake: s.test_press,
+        accel: s.test_press,
         speed_kmh: 60.0,
         rpm: 3500.0,
         max_rpm: 8000.0,
@@ -149,9 +149,9 @@ impl TriggerAnimations {
         Effect::rigid(ramp(
             t.accel,
             s.accel_deadzone,
-            s.throttle_baseline_force,
-            s.throttle_max_force,
-            s.throttle_curve,
+            0,
+            s.throttle_stiffness,
+            1.0,
             s.throttle_wall_engage_at,
         ))
     }

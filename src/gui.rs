@@ -1,12 +1,11 @@
 use eframe::egui::{self, Color32, RichText, Stroke};
 #[cfg(windows)]
 use eframe::egui::ViewportCommand;
-use egui_plot::{Line, Plot, PlotPoints, VLine};
 #[cfg(windows)]
 use tray_icon::{menu::MenuEvent, TrayIconEvent};
 
 use crate::settings::Settings;
-use crate::state::{HidStatus, HistorySample, SharedState};
+use crate::state::{HidStatus, SharedState};
 #[cfg(windows)]
 use crate::tray::Tray;
 use crate::triggers::Effect;
@@ -166,8 +165,6 @@ impl eframe::App for GuiApp {
                     .show(ui, |ui| {
                         update_banner(ui, &snapshot.update_status);
                         stat_strip(ui, &snapshot);
-                        ui.add_space(10.0);
-                        plots_section(ui, &snapshot);
                         ui.add_space(12.0);
                         triggers_section(ui, &snapshot);
                         ui.add_space(12.0);
@@ -179,22 +176,7 @@ impl eframe::App for GuiApp {
 
 impl GuiApp {
     fn collect_snapshot(&self) -> SnapshotForUi {
-        let mut s = self.state.lock();
-
-        // Push a new history sample at the GUI repaint rate (~30 Hz).
-        let t = s.started_at.elapsed().as_secs_f32();
-        let sample = HistorySample {
-            t,
-            speed_kmh: s.telemetry.speed_kmh,
-            rpm: s.telemetry.rpm,
-            max_rpm: s.telemetry.max_rpm,
-            throttle: s.telemetry.accel as f32 / 255.0,
-            brake: s.telemetry.brake as f32 / 255.0,
-        };
-        s.history.push(sample);
-
-        let samples: Vec<HistorySample> = s.history.samples.iter().copied().collect();
-        let now_t = t;
+        let s = self.state.lock();
 
         SnapshotForUi {
             hid_status: s.hid_status,
@@ -214,8 +196,6 @@ impl GuiApp {
             web_url: s.web_url.clone(),
             settings: s.settings.clone(),
             update_status: s.update_status.clone(),
-            samples,
-            now_t,
         }
     }
 }
@@ -235,8 +215,6 @@ struct SnapshotForUi {
     web_url: String,
     settings: Settings,
     update_status: UpdateStatus,
-    samples: Vec<HistorySample>,
-    now_t: f32,
 }
 
 // ────────────────────────────────────────────────────────────────────
@@ -338,110 +316,6 @@ fn stat_card(ui: &mut egui::Ui, label: &str, value: String, value_color: Color32
                 ui.label(RichText::new(label).small().color(DIM).strong());
                 ui.label(RichText::new(value).size(18.0).color(value_color).strong().monospace());
             });
-        });
-}
-
-// ────────────────────────────────────────────────────────────────────
-// Live plots
-// ────────────────────────────────────────────────────────────────────
-
-const PLOT_WINDOW_S: f32 = 20.0;
-
-fn plots_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
-    let samples = &snap.samples;
-    let now = snap.now_t;
-    let window_start = now - PLOT_WINDOW_S;
-
-    // Build series. X axis is "seconds from now" (negative = past, 0 = now).
-    let rel = |s: &HistorySample| (s.t - now) as f64;
-
-    let speed: PlotPoints = samples
-        .iter()
-        .filter(|s| s.t >= window_start)
-        .map(|s| [rel(s), s.speed_kmh as f64])
-        .collect();
-    let rpm: PlotPoints = samples
-        .iter()
-        .filter(|s| s.t >= window_start)
-        .map(|s| [rel(s), s.rpm as f64])
-        .collect();
-    let throttle: PlotPoints = samples
-        .iter()
-        .filter(|s| s.t >= window_start)
-        .map(|s| [rel(s), s.throttle as f64])
-        .collect();
-    let brake: PlotPoints = samples
-        .iter()
-        .filter(|s| s.t >= window_start)
-        .map(|s| [rel(s), s.brake as f64])
-        .collect();
-
-    let max_rpm = samples.iter().map(|s| s.max_rpm).fold(0.0_f32, f32::max).max(8000.0);
-
-    plot_card(ui, "Speed (km/h)", |ui| {
-        Plot::new("plot_speed")
-            .height(90.0)
-            .show_axes([false, true])
-            .show_grid([false, true])
-            .include_x(-(PLOT_WINDOW_S as f64))
-            .include_x(0.0)
-            .include_y(0.0)
-            .allow_drag(false)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .show(ui, |p| {
-                p.line(Line::new(speed).color(ACCENT).width(2.0));
-                p.vline(VLine::new(0.0).color(Color32::from_rgba_premultiplied(80, 90, 110, 100)));
-            });
-    });
-
-    plot_card(ui, "RPM", |ui| {
-        Plot::new("plot_rpm")
-            .height(90.0)
-            .show_axes([false, true])
-            .show_grid([false, true])
-            .include_x(-(PLOT_WINDOW_S as f64))
-            .include_x(0.0)
-            .include_y(0.0)
-            .include_y(max_rpm as f64)
-            .allow_drag(false)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .show(ui, |p| {
-                p.line(Line::new(rpm).color(WARN).width(2.0));
-                p.vline(VLine::new(0.0).color(Color32::from_rgba_premultiplied(80, 90, 110, 100)));
-            });
-    });
-
-    plot_card(ui, "Inputs (throttle / brake)", |ui| {
-        Plot::new("plot_inputs")
-            .height(90.0)
-            .show_axes([false, true])
-            .show_grid([false, true])
-            .include_x(-(PLOT_WINDOW_S as f64))
-            .include_x(0.0)
-            .include_y(0.0)
-            .include_y(1.0)
-            .allow_drag(false)
-            .allow_zoom(false)
-            .allow_scroll(false)
-            .show(ui, |p| {
-                p.line(Line::new(throttle).color(THROTTLE).width(2.0).name("throttle"));
-                p.line(Line::new(brake).color(BRAKE).width(2.0).name("brake"));
-                p.vline(VLine::new(0.0).color(Color32::from_rgba_premultiplied(80, 90, 110, 100)));
-            });
-    });
-}
-
-fn plot_card(ui: &mut egui::Ui, label: &str, body: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::none()
-        .fill(CARD_BG)
-        .rounding(8.0)
-        .inner_margin(egui::Margin::symmetric(12.0, 8.0))
-        .show(ui, |ui| {
-            ui.label(RichText::new(label).small().strong().color(DIM));
-            ui.add_space(2.0);
-            body(ui);
         });
 }
 
@@ -595,7 +469,7 @@ fn section_brake(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Baseline force", &mut s.brake_baseline_force, 0, 255);
     c |= slider_u8(ui, "Bite point", &mut s.brake_bite_point, 0, 255);
     c |= slider_u8(ui, "Bite force", &mut s.brake_bite_force, 0, 255);
-    c |= slider_u8(ui, "Max force (lockup)", &mut s.brake_max_force, 0, 255);
+    c |= slider_u8(ui, "Stiffness (lockup)", &mut s.brake_max_force, 0, 255);
     c |= slider_f32(ui, "Bite curve", &mut s.brake_curve, 0.5, 8.0);
     c |= slider_u8(ui, "Wall engage at", &mut s.brake_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.brake_wall_release_at, 0, 255);
@@ -635,9 +509,7 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     header(ui, "Throttle (R2)");
     c |= ui.checkbox(&mut s.enable_throttle_resistance, "Resistance").changed();
     c |= slider_u8(ui, "Deadzone", &mut s.accel_deadzone, 0, 255);
-    c |= slider_u8(ui, "Baseline force", &mut s.throttle_baseline_force, 0, 255);
-    c |= slider_u8(ui, "Max force", &mut s.throttle_max_force, 0, 255);
-    c |= slider_f32(ui, "Curve", &mut s.throttle_curve, 0.5, 8.0);
+    c |= slider_u8(ui, "Stiffness", &mut s.throttle_stiffness, 0, 60);
     c |= slider_u8(ui, "Wall engage at", &mut s.throttle_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.throttle_wall_release_at, 0, 255);
     c
@@ -692,11 +564,10 @@ fn section_system(ui: &mut egui::Ui, s: &mut Settings) -> bool {
             "Drive triggers from sliders when game is not streaming",
         )
         .changed();
-    c |= slider_u8(ui, "Simulated brake", &mut s.test_brake, 0, 255);
-    c |= slider_u8(ui, "Simulated throttle", &mut s.test_throttle, 0, 255);
+    c |= slider_u8(ui, "Pedal press", &mut s.test_press, 0, 255);
     ui.label(
         RichText::new(
-            "Feeds these inputs through the same brake and throttle force curves the game uses, so you feel the configured resistance without launching Forza.",
+            "Drives both triggers at this press level through the same brake and throttle force curves the game uses — feel the configured resistance without launching Forza.",
         )
         .color(DIM)
         .small(),

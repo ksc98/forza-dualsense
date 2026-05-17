@@ -2,7 +2,7 @@
 
 [package]
 name = "forza-dualsense"
-version = "0.1.5"
+version = "2026.5.17"
 edition = "2021"
 description = "Adaptive trigger feedback for Forza Horizon on the DualSense controller"
 license = "MIT OR Apache-2.0"
@@ -34,7 +34,6 @@ mime_guess = "2"
 # Native GUI
 eframe = { version = "0.27", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
 egui = "0.27"
-egui_plot = "0.27"
 
 # Forza process detection
 sysinfo = { version = "0.30", default-features = false }
