@@ -108,7 +108,7 @@ impl Default for Settings {
             enable_handbrake_bonus: true,
             handbrake_bonus: 25,
 
-            enable_abs: true,
+            enable_abs: false,
             abs_brake_threshold: 80,
             abs_min_speed_kmh: 15.0,
             abs_slip_ratio_threshold: 1.0,
@@ -128,12 +128,12 @@ impl Default for Settings {
             rev_limit_amp: 1,
             rev_limit_hold_ms: 120.0,
 
-            enable_redline_rumble: true,
+            enable_redline_rumble: false,
             redline_rumble_start_ratio: 0.85,
             redline_rumble_max: 200,
 
-            enable_gear_shift: true,
-            enable_gear_shift_brake: true,
+            enable_gear_shift: false,
+            enable_gear_shift_brake: false,
             gear_shift_freq: 20,
             gear_shift_amp: 255,
             gear_shift_duration_ms: 100.0,
