@@ -14,13 +14,10 @@ pub const PID_DUALSENSE: u16 = 0x0CE6;
 pub const PID_DUALSENSE_EDGE: u16 = 0x0DF2;
 
 /// Bit 2 = R trigger effect, bit 3 = L trigger effect. Leaving bits 0/1
-/// cleared keeps Steam's rumble bytes untouched. When we also want to
-/// drive the rumble motors (redline buzz) we OR in `FLAGS_RUMBLE` so the
-/// firmware reads our motor bytes.
+/// cleared keeps Steam's rumble bytes untouched, so motor rumble
+/// passthrough from the game (or Steam Input) stays intact while we
+/// only own the triggers.
 const FLAGS_TRIGGERS_ONLY: u8 = 0x04 | 0x08;
-/// bit 0 = enable compat rumble (motor bytes), bit 1 = "use rumble not
-/// haptics" — together they make the rumble bytes authoritative.
-const FLAGS_RUMBLE: u8 = 0x01 | 0x02;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {
@@ -68,15 +65,6 @@ impl Transport {
         }
     }
 
-    /// `(right_motor, left_motor)` byte offsets — right is the
-    /// high-frequency (light) motor, left is the low-frequency (heavy)
-    /// motor in the DualSense compat-rumble layout.
-    fn rumble_off(self) -> (usize, usize) {
-        match self {
-            Transport::Usb => (3, 4),
-            Transport::Bluetooth => (4, 5),
-        }
-    }
 }
 
 pub struct DualSense {
@@ -150,21 +138,9 @@ impl DualSense {
         }
     }
 
+    /// Write trigger effects only. Leaves the rumble-motor bytes
+    /// untouched so the game (or Steam Input) keeps owning haptics.
     pub fn write_triggers(&self, l2: &Effect, r2: &Effect) -> Result<()> {
-        self.write_outputs(l2, r2, 0, 0)
-    }
-
-    /// Same as `write_triggers` but also drives the main rumble motors.
-    /// `rumble_heavy` is the low-frequency (left) motor; `rumble_light`
-    /// is the high-frequency (right) motor. Pass `0, 0` to leave the
-    /// motors alone and keep Steam Input's rumble passthrough working.
-    pub fn write_outputs(
-        &self,
-        l2: &Effect,
-        r2: &Effect,
-        rumble_heavy: u8,
-        rumble_light: u8,
-    ) -> Result<()> {
         let size = self.transport.report_size();
         let mut buf = vec![0u8; size];
         buf[0] = self.transport.report_id();
@@ -172,14 +148,7 @@ impl DualSense {
         // above leaves it at 0x00, which every DualSense firmware seen
         // in the wild tolerates. If a future firmware enforces Sony's
         // rotating-nibble protocol, add a per-write counter here.
-        let mut flags = FLAGS_TRIGGERS_ONLY;
-        if rumble_heavy != 0 || rumble_light != 0 {
-            flags |= FLAGS_RUMBLE;
-            let (r_rumble, l_rumble) = self.transport.rumble_off();
-            buf[r_rumble] = rumble_light;
-            buf[l_rumble] = rumble_heavy;
-        }
-        buf[self.transport.flags_off()] = flags;
+        buf[self.transport.flags_off()] = FLAGS_TRIGGERS_ONLY;
 
         let r_off = self.transport.right_trigger_off();
         let l_off = self.transport.left_trigger_off();

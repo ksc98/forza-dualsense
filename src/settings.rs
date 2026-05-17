@@ -53,19 +53,6 @@ pub struct Settings {
     pub throttle_wall_engage_at: u8,
     pub throttle_wall_release_at: u8,
 
-    pub enable_rev_limiter: bool,
-    pub rev_limit_ratio: f32,
-    pub rev_limit_freq: u8,
-    pub rev_limit_amp: u8,
-    pub rev_limit_hold_ms: f32,
-
-    /// Drive the controller's main rumble motors based on RPM proximity
-    /// to redline. Enabling this takes over the rumble bytes Steam Input
-    /// would otherwise own.
-    pub enable_redline_rumble: bool,
-    pub redline_rumble_start_ratio: f32,
-    pub redline_rumble_max: u8,
-
     pub enable_gear_shift: bool,
     pub enable_gear_shift_brake: bool,
     pub gear_shift_freq: u8,
@@ -122,18 +109,9 @@ impl Default for Settings {
             throttle_wall_engage_at: 250,
             throttle_wall_release_at: 200,
 
-            enable_rev_limiter: true,
-            rev_limit_ratio: 0.93,
-            rev_limit_freq: 20,
-            rev_limit_amp: 1,
-            rev_limit_hold_ms: 120.0,
-
-            enable_redline_rumble: false,
-            redline_rumble_start_ratio: 0.85,
-            redline_rumble_max: 200,
 
             enable_gear_shift: false,
-            enable_gear_shift_brake: false,
+            enable_gear_shift_brake: true,
             gear_shift_freq: 20,
             gear_shift_amp: 255,
             gear_shift_duration_ms: 100.0,

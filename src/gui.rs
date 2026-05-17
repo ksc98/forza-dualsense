@@ -580,7 +580,7 @@ fn settings_panel(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     changed |= section_brake(ui, s);
     changed |= section_abs(ui, s);
     changed |= section_throttle(ui, s);
-    changed |= section_shift_rev(ui, s);
+    changed |= section_gear_shift(ui, s);
     changed |= section_system(ui, s);
     changed
 }
@@ -660,7 +660,7 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c
 }
 
-fn section_shift_rev(ui: &mut egui::Ui, s: &mut Settings) -> bool {
+fn section_gear_shift(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     let mut c = false;
     header(ui, "Gear shift");
     c |= ui.checkbox(&mut s.enable_gear_shift, "On throttle").changed();
@@ -668,27 +668,6 @@ fn section_shift_rev(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Freq (Hz)", &mut s.gear_shift_freq, 1, 60);
     c |= slider_u8(ui, "Amp", &mut s.gear_shift_amp, 0, 255);
     c |= slider_f32(ui, "Duration (ms)", &mut s.gear_shift_duration_ms, 20.0, 400.0);
-
-    header(ui, "Rev limiter");
-    c |= ui.checkbox(&mut s.enable_rev_limiter, "Enable").changed();
-    c |= slider_f32(ui, "Ratio (rpm/max)", &mut s.rev_limit_ratio, 0.5, 1.0);
-    c |= slider_u8(ui, "Freq (Hz)", &mut s.rev_limit_freq, 1, 60);
-    c |= slider_u8(ui, "Amp", &mut s.rev_limit_amp, 0, 255);
-    c |= slider_f32(ui, "Hold (ms)", &mut s.rev_limit_hold_ms, 0.0, 500.0);
-
-    header(ui, "Redline rumble");
-    c |= ui
-        .checkbox(&mut s.enable_redline_rumble, "Rumble body as RPM nears redline")
-        .changed();
-    c |= slider_f32(ui, "Start (rpm/max)", &mut s.redline_rumble_start_ratio, 0.5, 1.0);
-    c |= slider_u8(ui, "Peak intensity", &mut s.redline_rumble_max, 0, 255);
-    ui.label(
-        RichText::new(
-            "Drives the controller's main rumble motors. Takes over Steam Input's rumble passthrough while enabled.",
-        )
-        .color(DIM)
-        .small(),
-    );
     c
 }
 

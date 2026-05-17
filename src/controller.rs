@@ -21,12 +21,11 @@ fn synth_telemetry(brake: u8, accel: u8) -> Telemetry {
     }
 }
 
-/// State for effects that span multiple frames (gear shift, rev hold).
+/// State for effects that span multiple frames (gear-shift buzz hold).
 #[derive(Default)]
 pub struct TriggerAnimations {
     prev_gear: u8,
     shift_until: Option<Instant>,
-    rev_until: Option<Instant>,
 }
 
 /// Piecewise brake-pedal force curve. The lower segment is linear so
@@ -93,26 +92,6 @@ impl TriggerAnimations {
         } else {
             Some(Effect::vibration(s.gear_shift_freq, s.gear_shift_amp))
         }
-    }
-
-    pub fn rev_buzz(&mut self, t: &Telemetry, s: &Settings, now: Instant) -> Option<Effect> {
-        if !s.enable_rev_limiter {
-            return None;
-        }
-        if t.accel >= s.accel_deadzone && t.max_rpm > 0.0 {
-            let r = t.rpm / t.max_rpm;
-            if r > s.rev_limit_ratio {
-                self.rev_until = Some(
-                    now + std::time::Duration::from_millis(s.rev_limit_hold_ms as u64),
-                );
-            }
-        }
-        if let Some(until) = self.rev_until {
-            if now < until {
-                return Some(Effect::vibration(s.rev_limit_freq, s.rev_limit_amp));
-            }
-        }
-        None
     }
 
     pub fn abs_pulse(&self, t: &Telemetry, s: &Settings) -> Option<Effect> {
@@ -208,29 +187,6 @@ impl Controller {
         self.update_active(t, s)
     }
 
-    /// `(heavy, light)` motor intensities in 0..=255. Rumble ramps from
-    /// zero at `redline_rumble_start_ratio` to `redline_rumble_max` at
-    /// max RPM. Returns `(0, 0)` when telemetry is dead, so the motors
-    /// stay quiet in menus and Steam keeps ownership.
-    pub fn rumble(&self, t: &Telemetry, s: &Settings) -> (u8, u8) {
-        if !s.enable_redline_rumble {
-            return (0, 0);
-        }
-        let active = t.on || s.enable_idle_preview;
-        if !active || t.max_rpm <= 0.0 {
-            return (0, 0);
-        }
-        let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);
-        let start = s.redline_rumble_start_ratio.clamp(0.0, 0.999);
-        if ratio <= start {
-            return (0, 0);
-        }
-        let span = (1.0 - start).max(1e-3);
-        let k = ((ratio - start) / span).clamp(0.0, 1.0).powf(1.5);
-        let level = (k * s.redline_rumble_max as f32).round() as u8;
-        (level, level)
-    }
-
     fn update_active(&mut self, t: &Telemetry, s: &Settings) -> (Effect, Effect) {
         self.refresh_wall_if_needed(s);
         let now = Instant::now();
@@ -263,9 +219,6 @@ impl Controller {
             if let Some(e) = self.anim.shift_burst(s, now, t.accel, s.throttle_wall_engage_at) {
                 return e;
             }
-        }
-        if let Some(e) = self.anim.rev_buzz(t, s, now) {
-            return e;
         }
         self.r2_in_wall = wall_state(t.accel, self.r2_in_wall, s.throttle_wall_engage_at, s.throttle_wall_release_at);
         if self.r2_in_wall && s.enable_throttle_resistance {
