@@ -133,7 +133,7 @@ impl eframe::App for GuiApp {
                 header_bar(ui, &snapshot);
             });
 
-        egui::SidePanel::right("settings_panel_v3")
+        egui::SidePanel::left("settings_panel_v4_left")
             .resizable(false)
             .exact_width(380.0)
             .show(ctx, |ui| {

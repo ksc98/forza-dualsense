@@ -54,7 +54,7 @@
   .dot.ok { background: var(--ok); }
   main {
     display: grid;
-    grid-template-columns: 1fr 380px;
+    grid-template-columns: 380px 1fr;
     gap: 16px;
     padding: 16px 20px;
   }
@@ -219,6 +219,12 @@
 </header>
 
 <main>
+  <aside class="card settings">
+    <h2>Settings</h2>
+    <div id="settings-root"></div>
+    <button id="reset" style="margin-top:8px; width:100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: 6px; cursor: pointer;">Reset to defaults</button>
+  </aside>
+
   <section>
     <div class="banner" id="update-banner" style="display:none"></div>
 
@@ -255,12 +261,6 @@
       </details>
     </div>
   </section>
-
-  <aside class="card settings">
-    <h2>Settings</h2>
-    <div id="settings-root"></div>
-    <button id="reset" style="margin-top:8px; width:100%; background: var(--panel2); border: 1px solid var(--line); color: var(--text); padding: 8px; border-radius: 6px; cursor: pointer;">Reset to defaults</button>
-  </aside>
 </main>
 
 <footer>
