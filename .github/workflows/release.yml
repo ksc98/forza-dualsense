@@ -1,21 +1,23 @@
 name: release
 
+# Cargo.toml is the trigger. Push code freely; the workflow only
+# actually builds + publishes when the version in Cargo.toml is new.
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
   workflow_dispatch:
 
 permissions:
   contents: write
 
-# Block two releases from running at once.
 concurrency:
   group: release-${{ github.workflow }}
   cancel-in-progress: false
 
 jobs:
-  build-windows:
+  release:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -23,76 +25,65 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve tag
-        id: tag
+      - name: Decide whether to release
+        id: decide
         shell: pwsh
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          REF_NAME: ${{ github.ref_name }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
         run: |
-          # Parse Cargo.toml — always the source of truth for the version.
           $cargo = Get-Content Cargo.toml -Raw
           if ($cargo -notmatch '(?m)^version\s*=\s*"([^"]+)"') {
             Write-Error "Could not parse 'version' from Cargo.toml"
             exit 1
           }
-          $cargoVersion = $Matches[1]
-          $derivedTag = "v$cargoVersion"
+          $version = $Matches[1]
+          $tag = "v$version"
+          Write-Host "Cargo.toml version: $version -> tag $tag"
 
-          if ($env:EVENT_NAME -eq 'workflow_dispatch') {
-            $t = $derivedTag
-            Write-Host "workflow_dispatch — releasing Cargo.toml version $cargoVersion as $t"
-          } else {
-            $t = $env:REF_NAME
-            if (-not ($t -match '^v\d+\.\d+\.\d+$')) {
-              Write-Error "Pushed tag must look like 'vX.Y.Z', got '$t'"
-              exit 1
-            }
-            if ($t -ne $derivedTag) {
-              Write-Error "Pushed tag $t does not match Cargo.toml version $cargoVersion (expected $derivedTag). Bump Cargo.toml on main and re-tag."
-              exit 1
-            }
-            Write-Host "push tag — releasing $t (Cargo.toml matches)"
+          $url = "https://api.github.com/repos/$env:REPO/releases/tags/$tag"
+          $hdr = @{
+            Authorization = "Bearer $env:GH_TOKEN"
+            Accept = "application/vnd.github+json"
+            "User-Agent" = "forza-dualsense-release"
           }
-          "tag=$t" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-
-      - name: Refuse to re-release an existing tag
-        shell: pwsh
-        env:
-          TAG: ${{ steps.tag.outputs.tag }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          $url = "https://api.github.com/repos/$env:REPO/releases/tags/$env:TAG"
-          $hdr = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json"; "User-Agent" = "forza-dualsense-release" }
+          $exists = $false
           try {
             Invoke-WebRequest -Uri $url -Headers $hdr -UseBasicParsing | Out-Null
-            Write-Error "Release $env:TAG already exists. Bump the version in Cargo.toml and run again."
-            exit 1
+            $exists = $true
           } catch {
             $code = $null
             try { $code = $_.Exception.Response.StatusCode.value__ } catch { }
-            if ($code -eq 404) {
-              Write-Host "Tag $env:TAG is fresh — proceeding."
-            } else {
-              throw
-            }
+            if ($code -ne 404) { throw }
           }
 
+          if ($exists) {
+            Write-Host "Release $tag already exists — nothing to do."
+            "release=false" | Out-File $env:GITHUB_OUTPUT -Append
+          } else {
+            Write-Host "Release $tag is new — building."
+            "release=true" | Out-File $env:GITHUB_OUTPUT -Append
+          }
+          "tag=$tag" | Out-File $env:GITHUB_OUTPUT -Append
+
       - uses: dtolnay/rust-toolchain@stable
+        if: steps.decide.outputs.release == 'true'
         with:
           targets: x86_64-pc-windows-msvc
 
       - uses: Swatinem/rust-cache@v2
+        if: steps.decide.outputs.release == 'true'
 
       - name: Build release
+        if: steps.decide.outputs.release == 'true'
         run: cargo build --release --target x86_64-pc-windows-msvc
 
       - name: Package
+        if: steps.decide.outputs.release == 'true'
         id: pkg
         shell: pwsh
         env:
-          TAG: ${{ steps.tag.outputs.tag }}
+          TAG: ${{ steps.decide.outputs.tag }}
         run: |
           $name = "forza-dualsense-$env:TAG-x86_64-pc-windows-msvc"
           New-Item -ItemType Directory -Path $name | Out-Null
@@ -104,9 +95,10 @@ jobs:
           "asset=$name.zip" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Publish release
+        if: steps.decide.outputs.release == 'true'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ steps.decide.outputs.tag }}
           target_commitish: ${{ github.sha }}
           files: ${{ steps.pkg.outputs.asset }}
           generate_release_notes: true
