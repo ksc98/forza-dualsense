@@ -30,12 +30,12 @@ $builtExe   = $null
 # -----------------------------------------------------------------
 # 1. Decide between published release and source build.
 #
-#    Strategy: read the version in Cargo.toml on the target branch
-#    (`main` by default), compare to the latest release tag. If the
-#    branch is ahead of the latest release, the prebuilt binary is
-#    stale — build from source so the user gets the unreleased version.
+#    Strategy: read the version in Cargo.toml on the target branch and
+#    look for a release tagged exactly v<that>. Use it if present,
+#    otherwise build from source. Deliberately *not* "fetch latest by
+#    semver" — the repo has historical calendar-version tags (v2026.x.y)
+#    that lexically outrank legitimate 1.x.y releases.
 # -----------------------------------------------------------------
-Step "Looking for the latest published release"
 $headers = @{ "User-Agent" = "forza-dualsense-installer"; "Accept" = "application/vnd.github+json" }
 
 function Get-BranchVersion {
@@ -44,51 +44,36 @@ function Get-BranchVersion {
         $cargoUrl = "https://raw.githubusercontent.com/$Repo/$Branch/Cargo.toml"
         $cargo = Invoke-WebRequest -UseBasicParsing -Uri $cargoUrl -ErrorAction Stop
         if ($cargo.Content -match '(?m)^version\s*=\s*"([^"]+)"') {
-            return [version]$Matches[1]
+            return $Matches[1]
         }
     } catch { }
     return $null
 }
 
 $branchVersion = Get-BranchVersion -Repo $Repo -Branch $Branch
+if (-not $branchVersion) { Die "Could not read version from $Repo/$Branch/Cargo.toml" }
+$targetTag = "v$branchVersion"
+Step "Looking for release $targetTag"
+
 $release = $null
 $asset = $null
-$useRelease = $false
-
 try {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers $headers
+    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/tags/$targetTag" -Headers $headers
     $asset = $release.assets | Where-Object { $_.name -match "x86_64-pc-windows-msvc\.zip$" } | Select-Object -First 1
 } catch {
     $status = $null
     try { $status = $_.Exception.Response.StatusCode.value__ } catch { }
     if ($status -eq 404) {
-        Info "No release published yet — building from source"
+        Info "No release tagged $targetTag yet — building from source"
     } elseif ($status -eq 403) {
         Info "GitHub API rate-limited from this network — building from source"
     } else {
-        Info "Could not query latest release ($($_.Exception.Message)) — building from source"
+        Info "Could not query $targetTag ($($_.Exception.Message)) — building from source"
     }
 }
 
 if ($asset) {
-    $releaseVersion = $null
-    try { $releaseVersion = [version]($release.tag_name.TrimStart('v')) } catch { }
-
-    if ($branchVersion -and $releaseVersion -and $branchVersion -gt $releaseVersion) {
-        Info "Branch '$Branch' is at $branchVersion; latest release is $releaseVersion — building from source for the newer code"
-    } elseif ($branchVersion -and $releaseVersion -and $branchVersion -lt $releaseVersion) {
-        Info "Branch '$Branch' is at $branchVersion; latest release is $releaseVersion — installing the release (it's newer)"
-        $useRelease = $true
-    } else {
-        Info "Latest release: $($release.tag_name)"
-        $useRelease = $true
-    }
-} elseif ($release) {
-    Info "Latest release has no Windows asset — building from source"
-}
-
-if ($useRelease) {
-    Step "Downloading $($release.tag_name) — $($asset.name)"
+    Step "Downloading $targetTag — $($asset.name)"
     $tmp = Join-Path $env:TEMP ("forza-dualsense-rel-" + [guid]::NewGuid().ToString("N"))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     $zip = Join-Path $tmp $asset.name
@@ -101,6 +86,8 @@ if ($useRelease) {
     } else {
         Info "Release zip did not contain forza-dualsense.exe — falling back to source build"
     }
+} elseif ($release) {
+    Info "Release $targetTag has no Windows asset — building from source"
 }
 
 # -----------------------------------------------------------------
