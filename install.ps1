@@ -153,6 +153,20 @@ if (-not $builtExe) {
 # -----------------------------------------------------------------
 Step "Installing to $installDir"
 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+
+# Windows holds a lock on a running .exe, so the copy will fail if
+# Forza DualSense is currently open. Stop any running instance first.
+$running = Get-Process -Name forza-dualsense -ErrorAction SilentlyContinue
+if ($running) {
+    Info "Stopping $($running.Count) running instance(s) so the binary can be replaced"
+    $running | Stop-Process -Force
+    # Give Windows a moment to release the file handle.
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Milliseconds 200
+        if (-not (Get-Process -Name forza-dualsense -ErrorAction SilentlyContinue)) { break }
+    }
+}
+
 Copy-Item -Path $builtExe -Destination (Join-Path $installDir "forza-dualsense.exe") -Force
 Done "Copied binary to $installDir"
 
