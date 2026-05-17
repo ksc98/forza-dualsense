@@ -67,9 +67,8 @@ impl eframe::App for GuiApp {
             });
 
         egui::SidePanel::right("settings_panel")
-            .resizable(true)
-            .default_width(360.0)
-            .min_width(300.0)
+            .resizable(false)
+            .exact_width(380.0)
             .show(ctx, |ui| {
                 ui.add_space(6.0);
                 ui.label(RichText::new("Settings").size(18.0).strong());

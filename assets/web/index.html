@@ -100,6 +100,59 @@
     font-variant-numeric: tabular-nums;
   }
   .plots canvas { display: block; width: 100%; height: 90px; }
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+  .stat {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 14px;
+  }
+  .stat .lbl {
+    font-size: 10px;
+    color: var(--dim);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 600;
+  }
+  .stat .val {
+    margin-top: 2px;
+    font-family: ui-monospace, Menlo, monospace;
+    font-size: 18px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat .val.speed { color: var(--accent); }
+  .stat .val.rpm   { color: #ffb43c; }
+  .stat .val.rpm.redline { color: var(--bad); }
+  .stat .val.race.on  { color: var(--ok); }
+  .stat .val.race.off { color: var(--dim); }
+  .banner {
+    background: #143828;
+    color: var(--ok);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 14px;
+    font-weight: 600;
+  }
+  .banner.warn { background: #2a1f10; color: #ffb43c; font-weight: 500; }
+  .trig .force-bar {
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    margin-top: 8px;
+    overflow: hidden;
+  }
+  .trig .force-bar .fill {
+    height: 100%;
+    transition: width 60ms linear;
+  }
+  .trig.l2 .force-bar .fill { background: var(--bad); }
+  .trig.r2 .force-bar .fill { background: var(--ok); }
   .legend { font-size: 10px; color: var(--dim); display: flex; gap: 10px; }
   .legend span::before {
     content: "■";
@@ -193,6 +246,15 @@
 
 <main>
   <section>
+    <div class="banner" id="update-banner" style="display:none"></div>
+
+    <div class="stats">
+      <div class="stat"><div class="lbl">Speed</div><div class="val speed" id="stat-speed">— km/h</div></div>
+      <div class="stat"><div class="lbl">RPM</div><div class="val rpm" id="stat-rpm">—</div></div>
+      <div class="stat"><div class="lbl">Gear</div><div class="val" id="stat-gear">—</div></div>
+      <div class="stat"><div class="lbl">Race</div><div class="val race off" id="stat-race">idle</div></div>
+    </div>
+
     <div class="card plots">
       <h2>Live charts</h2>
       <div class="plot">
@@ -213,48 +275,26 @@
     </div>
 
     <div class="card" style="margin-top:16px">
-      <h2>Live telemetry</h2>
-      <div class="row"><label>Race</label><div class="value" id="t-on">—</div></div>
-      <div class="row"><label>Gear</label><div class="value" id="t-gear">—</div></div>
-      <div class="row"><label>Speed</label><div class="value" id="t-speed">—</div></div>
-      <div class="row">
-        <label>RPM</label>
-        <div class="bar"><div class="fill rpm" id="t-rpm-bar" style="width:0"></div></div>
-        <div class="value" id="t-rpm">—</div>
-      </div>
-      <div class="row">
-        <label>Throttle</label>
-        <div class="bar"><div class="fill accel" id="t-accel-bar" style="width:0"></div></div>
-        <div class="value" id="t-accel">—</div>
-      </div>
-      <div class="row">
-        <label>Brake</label>
-        <div class="bar"><div class="fill brake" id="t-brake-bar" style="width:0"></div></div>
-        <div class="value" id="t-brake">—</div>
-      </div>
-      <div class="row"><label>Handbrake</label><div class="value" id="t-hb">—</div></div>
-      <div class="row"><label>Max slip</label><div class="value" id="t-slip">—</div></div>
-    </div>
-
-    <div class="card" style="margin-top:16px">
       <h2>Trigger effects</h2>
       <div class="triggers">
-        <div class="trig">
-          <div class="label">L2 — Brake</div>
+        <div class="trig l2">
+          <div class="label">L2 · Brake</div>
           <div class="mode" id="l2-mode">—</div>
           <div class="params" id="l2-params"></div>
+          <div class="force-bar"><div class="fill" id="l2-force" style="width:0"></div></div>
         </div>
-        <div class="trig">
-          <div class="label">R2 — Throttle</div>
+        <div class="trig r2">
+          <div class="label">R2 · Throttle</div>
           <div class="mode" id="r2-mode">—</div>
           <div class="params" id="r2-params"></div>
+          <div class="force-bar"><div class="fill" id="r2-force" style="width:0"></div></div>
         </div>
       </div>
     </div>
 
     <div class="card" style="margin-top:16px">
       <h2>Diagnostics</h2>
-      <details open>
+      <details>
         <summary>Connection state</summary>
         <div id="diag" style="font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--dim);"></div>
       </details>
@@ -572,8 +612,38 @@ function fmtEffect(eff) {
   return [eff.kind, ""];
 }
 
+function effectForce(eff) {
+  if (!eff) return 0;
+  if (eff.kind === "off") return 0;
+  if (eff.kind === "rigid") return (eff.force ?? 0) / 255;
+  if (eff.kind === "vibration") return (eff.amp ?? 0) / 255;
+  if (eff.kind === "vibration_wall") return (eff.amp_strength ?? 0) / 8;
+  if (eff.kind === "feedback") {
+    const zones = eff.zones || [];
+    return zones.length ? Math.max(...zones) / 8 : 0;
+  }
+  return 0;
+}
+
+function renderUpdateBanner(status) {
+  const el = document.getElementById("update-banner");
+  if (!status) { el.style.display = "none"; return; }
+  if (status.state === "applied") {
+    el.style.display = "";
+    el.classList.remove("warn");
+    el.textContent = `Update v${status.version} downloaded. Restart Forza DualSense to apply.`;
+  } else if (status.state === "failed") {
+    el.style.display = "";
+    el.classList.add("warn");
+    el.textContent = `Update check failed: ${status.error}`;
+  } else {
+    el.style.display = "none";
+  }
+}
+
 function render(snap) {
   renderPlots(snap);
+  renderUpdateBanner(snap.update_status);
   document.getElementById("version").textContent = `udp ${snap.udp_host}:${snap.udp_port}`;
 
   const hidDot = document.getElementById("hid-dot");
@@ -594,17 +664,29 @@ function render(snap) {
   document.getElementById("rate-label").textContent = `${snap.packets_per_sec.toFixed(0)} pkts/s`;
 
   const t = snap.telemetry;
-  document.getElementById("t-on").textContent = t.on ? "yes" : "no";
-  document.getElementById("t-gear").textContent = t.gear;
-  document.getElementById("t-speed").textContent = t.speed_kmh.toFixed(1) + " km/h";
-  document.getElementById("t-rpm").textContent = `${Math.round(t.rpm)} / ${Math.round(t.max_rpm)}`;
-  const rpmPct = t.max_rpm > 0 ? Math.min(100, (t.rpm / t.max_rpm) * 100) : 0;
-  document.getElementById("t-rpm-bar").style.width = rpmPct + "%";
-  document.getElementById("t-accel").textContent = t.accel;
-  document.getElementById("t-brake").textContent = t.brake;
-  document.getElementById("t-accel-bar").style.width = (t.accel / 255 * 100) + "%";
-  document.getElementById("t-brake-bar").style.width = (t.brake / 255 * 100) + "%";
-  document.getElementById("t-hb").textContent = t.handbrake ? "engaged" : "—";
+
+  // Stat strip.
+  document.getElementById("stat-speed").textContent = `${t.speed_kmh.toFixed(0)} km/h`;
+  const rpmEl = document.getElementById("stat-rpm");
+  rpmEl.textContent = `${Math.round(t.rpm)}`;
+  rpmEl.classList.toggle("redline", t.max_rpm > 0 && t.rpm / t.max_rpm > 0.93);
+  document.getElementById("stat-gear").textContent = t.gear === 0 ? "N" : String(t.gear);
+  const raceEl = document.getElementById("stat-race");
+  raceEl.textContent = t.on ? "live" : "idle";
+  raceEl.classList.toggle("on", t.on);
+  raceEl.classList.toggle("off", !t.on);
+
+  // Trigger effect cards.
+  const [lMode, lParams] = fmtEffect(snap.l2);
+  document.getElementById("l2-mode").textContent = lMode;
+  document.getElementById("l2-params").textContent = lParams;
+  document.getElementById("l2-force").style.width = (effectForce(snap.l2) * 100) + "%";
+  const [rMode, rParams] = fmtEffect(snap.r2);
+  document.getElementById("r2-mode").textContent = rMode;
+  document.getElementById("r2-params").textContent = rParams;
+  document.getElementById("r2-force").style.width = (effectForce(snap.r2) * 100) + "%";
+
+  // Diagnostics (collapsed by default; mirrors native).
   const slipRatio = Math.max(
     Math.abs(t.tire_slip_ratio[0]),
     Math.abs(t.tire_slip_ratio[1]),
@@ -617,20 +699,14 @@ function render(snap) {
     Math.abs(t.tire_combined_slip[2]),
     Math.abs(t.tire_combined_slip[3]),
   );
-  document.getElementById("t-slip").textContent = `r ${slipRatio.toFixed(2)} · c ${slipComb.toFixed(2)}`;
-
-  const [lMode, lParams] = fmtEffect(snap.l2);
-  document.getElementById("l2-mode").textContent = lMode;
-  document.getElementById("l2-params").textContent = lParams;
-  const [rMode, rParams] = fmtEffect(snap.r2);
-  document.getElementById("r2-mode").textContent = rMode;
-  document.getElementById("r2-params").textContent = rParams;
-
   const diag = document.getElementById("diag");
   diag.textContent =
     `packets received : ${snap.packets_received}\n` +
     `uptime           : ${snap.uptime_s.toFixed(0)}s\n` +
     `seconds since rx : ${snap.seconds_since_packet === null ? "never" : snap.seconds_since_packet.toFixed(1)}\n` +
+    `slip ratio       : ${slipRatio.toFixed(2)}\n` +
+    `combined slip    : ${slipComb.toFixed(2)}\n` +
+    `handbrake        : ${t.handbrake ? "engaged" : "—"}\n` +
     (snap.hid_error ? `hid error        : ${snap.hid_error}\n` : "") +
     (snap.hid_serial ? `controller serial: ${snap.hid_serial}\n` : "");
 }
