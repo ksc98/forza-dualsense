@@ -55,6 +55,15 @@ fn apply_style(ctx: &egui::Context) {
 }
 
 impl eframe::App for GuiApp {
+    /// eframe persists egui memory (including SidePanel widths) to disk
+    /// by default. That meant earlier versions where the settings panel
+    /// was resizable could leave behind a tiny width that stuck around
+    /// across upgrades and overrode `exact_width()`. We don't rely on
+    /// any persisted UI state, so just turn it off.
+    fn persist_egui_memory(&self) -> bool {
+        false
+    }
+
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         ctx.request_repaint_after(std::time::Duration::from_millis(33));
 
@@ -66,7 +75,7 @@ impl eframe::App for GuiApp {
                 header_bar(ui, &snapshot);
             });
 
-        egui::SidePanel::right("settings_panel")
+        egui::SidePanel::right("settings_panel_v3")
             .resizable(false)
             .exact_width(380.0)
             .show(ctx, |ui| {
@@ -525,10 +534,19 @@ fn section_brake(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= ui.checkbox(&mut s.enable_brake_resistance, "Resistance").changed();
     c |= slider_u8(ui, "Deadzone", &mut s.brake_deadzone, 0, 255);
     c |= slider_u8(ui, "Baseline force", &mut s.brake_baseline_force, 0, 255);
-    c |= slider_u8(ui, "Max force", &mut s.brake_max_force, 0, 255);
-    c |= slider_f32(ui, "Curve", &mut s.brake_curve, 0.5, 8.0);
+    c |= slider_u8(ui, "Bite point", &mut s.brake_bite_point, 0, 255);
+    c |= slider_u8(ui, "Bite force", &mut s.brake_bite_force, 0, 255);
+    c |= slider_u8(ui, "Max force (lockup)", &mut s.brake_max_force, 0, 255);
+    c |= slider_f32(ui, "Bite curve", &mut s.brake_curve, 0.5, 8.0);
     c |= slider_u8(ui, "Wall engage at", &mut s.brake_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.brake_wall_release_at, 0, 255);
+    ui.label(
+        RichText::new(
+            "Linear modulation up to the bite point, then a steep ramp to lockup — push past intentionally.",
+        )
+        .color(DIM)
+        .small(),
+    );
     c |= ui.checkbox(&mut s.enable_handbrake_bonus, "Handbrake bonus").changed();
     c |= slider_u8(ui, "Handbrake bonus force", &mut s.handbrake_bonus, 0, 255);
     c

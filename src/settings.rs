@@ -14,9 +14,19 @@ pub struct Settings {
     pub wall_zones: u8,
 
     // --- L2: Brake ---
+    //
+    // The brake trigger uses a piecewise force curve:
+    //   * 0..deadzone:            no contact, baseline force only
+    //   * deadzone..bite_point:   linear modulation — real pedal feel
+    //   * bite_point..wall_at:    steep ramp toward `max_force` — the
+    //                              "bite" zone you have to mean to push
+    //                              through (mimics anti-lock onset)
+    //   * wall_at..:              rigid wall, full lock-up
     pub enable_brake_resistance: bool,
     pub brake_deadzone: u8,
     pub brake_baseline_force: u8,
+    pub brake_bite_point: u8,
+    pub brake_bite_force: u8,
     pub brake_max_force: u8,
     pub brake_curve: f32,
     pub brake_wall_engage_at: u8,
@@ -92,12 +102,14 @@ impl Default for Settings {
             wall_zones: 2,
 
             enable_brake_resistance: true,
-            brake_deadzone: 20,
-            brake_baseline_force: 20,
-            brake_max_force: 110,
-            brake_curve: 2.0,
+            brake_deadzone: 10,
+            brake_baseline_force: 15,
+            brake_bite_point: 200,
+            brake_bite_force: 60,
+            brake_max_force: 200,
+            brake_curve: 3.0,
             brake_wall_engage_at: 250,
-            brake_wall_release_at: 200,
+            brake_wall_release_at: 220,
 
             enable_handbrake_bonus: true,
             handbrake_bonus: 25,

@@ -37,6 +37,28 @@ fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceilin
     baseline as f32 + (max_force as f32 - baseline as f32) * r.powf(curve)
 }
 
+/// Piecewise brake-pedal force curve. The lower segment is linear so
+/// the player can modulate just like a real pedal; the upper segment
+/// ramps steeply to `max_force` so the lock-up zone takes deliberate
+/// effort to enter. `curve` shapes only the bite-zone steepness.
+fn brake_ramp(value: u8, s: &Settings) -> f32 {
+    let deadzone = s.brake_deadzone;
+    let baseline = s.brake_baseline_force as f32;
+    if value < deadzone {
+        return baseline;
+    }
+    let bite_point = s.brake_bite_point.max(deadzone.saturating_add(1));
+    let bite_force = s.brake_bite_force as f32;
+    if value < bite_point {
+        let r = (value - deadzone) as f32 / (bite_point - deadzone) as f32;
+        return baseline + (bite_force - baseline) * r;
+    }
+    let wall_at = s.brake_wall_engage_at.max(bite_point.saturating_add(1));
+    let top = value.min(wall_at);
+    let r = (top - bite_point) as f32 / (wall_at - bite_point) as f32;
+    bite_force + (s.brake_max_force as f32 - bite_force) * r.powf(s.brake_curve)
+}
+
 fn wall_state(value: u8, engaged: bool, engage_at: u8, release_at: u8) -> bool {
     if engaged {
         value >= release_at
@@ -113,14 +135,7 @@ impl TriggerAnimations {
         if !s.enable_brake_resistance {
             return if handbrake { Effect::rigid(s.handbrake_bonus as f32) } else { Effect::Off };
         }
-        let mut f = ramp(
-            t.brake,
-            s.brake_deadzone,
-            s.brake_baseline_force,
-            s.brake_max_force,
-            s.brake_curve,
-            s.brake_wall_engage_at,
-        );
+        let mut f = brake_ramp(t.brake, s);
         if handbrake {
             f += s.handbrake_bonus as f32;
         }
