@@ -254,6 +254,40 @@ impl Controller {
         )
     }
 
+    /// Bitmask of the 5 player LEDs to light as a centre-out RPM bar.
+    /// Bits 0..=4 each correspond to one LED; the mapping below grows
+    /// symmetrically from the centre LED outward as RPM climbs. White
+    /// only — the player LEDs aren't RGB — but they sit in the middle
+    /// of the controller and are much easier to see than the light
+    /// bar on the sides of the touchpad.
+    ///
+    /// Returns 0 (all off) when the feature is disabled, when there's
+    /// no live engine telemetry, or in menus.
+    pub fn player_led_tach(&self, t: &Telemetry, s: &Settings) -> u8 {
+        if !s.enable_player_led_tach {
+            return 0;
+        }
+        let active = t.on || s.enable_idle_preview;
+        if !active || t.max_rpm <= 0.0 {
+            return 0;
+        }
+        let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);
+        // 0..=5 LEDs lit. Round to the nearest step so 50% RPM lights
+        // 2–3 LEDs deterministically rather than flickering between
+        // counts as RPM jiggles near a step boundary.
+        let lit = (ratio * 5.0).round().clamp(0.0, 5.0) as usize;
+        // Centre-out fill. Index = number of LEDs to light.
+        const STEPS: [u8; 6] = [
+            0b00000, // 0 — dark
+            0b00100, // 1 — centre
+            0b01100, // 2 — centre + one side
+            0b01110, // 3 — three around centre
+            0b11110, // 4 — four (asymmetric, biased to the outside)
+            0b11111, // 5 — all
+        ];
+        STEPS[lit]
+    }
+
     fn update_active(&mut self, t: &Telemetry, s: &Settings) -> (Effect, Effect) {
         self.refresh_wall_if_needed(s);
         let now = Instant::now();

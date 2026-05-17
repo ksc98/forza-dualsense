@@ -17,11 +17,15 @@ pub const PID_DUALSENSE_EDGE: u16 = 0x0DF2;
 /// Leaving bits 0/1 cleared keeps Steam's rumble bytes untouched so
 /// motor rumble passthrough from the game (or Steam Input) stays intact.
 const FLAGS_TRIGGERS_ONLY: u8 = 0x04 | 0x08;
-/// Valid-flag 1: tells the firmware to honour our LED control bytes
-/// (lightbar RGB + LED brightness override). bit 2 = LED config,
-/// bit 4 = lightbar control. Only set when the lightbar feature is
-/// on so we don't fight Steam Input for the colour otherwise.
-const FLAGS_LIGHTBAR: u8 = 0x04 | 0x10;
+/// Valid-flag 1 bits we set when overriding LED state.
+///   bit 2 (0x04) = LED config allowed
+///   bit 4 (0x10) = light bar control
+///   bit 6 (0x40) = player LEDs control
+/// Combine the bits we need per-frame so Steam Input keeps owning any
+/// LED channel we aren't actively writing.
+const FLAG1_LED_CONFIG: u8 = 0x04;
+const FLAG1_LIGHTBAR: u8 = 0x10;
+const FLAG1_PLAYER_LEDS: u8 = 0x40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {
@@ -83,6 +87,15 @@ impl Transport {
         match self {
             Transport::Usb => (45, 46, 47),
             Transport::Bluetooth => (46, 47, 48),
+        }
+    }
+
+    /// Byte offset of the player-LED bitmask. Bits 0..=4 each light
+    /// one of the five LEDs centred under the touchpad.
+    fn player_led_off(self) -> usize {
+        match self {
+            Transport::Usb => 44,
+            Transport::Bluetooth => 45,
         }
     }
 }
@@ -158,14 +171,18 @@ impl DualSense {
         }
     }
 
-    /// Write trigger effects, and optionally drive the light bar. Pass
-    /// `(0, 0, 0)` as `lightbar` to leave the LED control flag clear
-    /// and let Steam Input keep ownership of the colour.
+    /// Write trigger effects, and optionally drive the LEDs.
+    ///
+    /// * `lightbar = (0,0,0)` leaves the light bar to Steam Input.
+    /// * `player_leds = 0` leaves the centre LED row alone.
+    ///
+    /// Both channels are independent — set one or both per frame.
     pub fn write_triggers(
         &self,
         l2: &Effect,
         r2: &Effect,
         lightbar: (u8, u8, u8),
+        player_leds: u8,
     ) -> Result<()> {
         let size = self.transport.report_size();
         let mut buf = vec![0u8; size];
@@ -175,13 +192,21 @@ impl DualSense {
         // in the wild tolerates. If a future firmware enforces Sony's
         // rotating-nibble protocol, add a per-write counter here.
         buf[self.transport.flags_off()] = FLAGS_TRIGGERS_ONLY;
+        let mut flags1 = 0;
         let (lr, lg, lb) = lightbar;
         if lr != 0 || lg != 0 || lb != 0 {
-            buf[self.transport.flags1_off()] = FLAGS_LIGHTBAR;
+            flags1 |= FLAG1_LED_CONFIG | FLAG1_LIGHTBAR;
             let (r_off, g_off, b_off) = self.transport.lightbar_rgb_off();
             buf[r_off] = lr;
             buf[g_off] = lg;
             buf[b_off] = lb;
+        }
+        if player_leds != 0 {
+            flags1 |= FLAG1_LED_CONFIG | FLAG1_PLAYER_LEDS;
+            buf[self.transport.player_led_off()] = player_leds;
+        }
+        if flags1 != 0 {
+            buf[self.transport.flags1_off()] = flags1;
         }
 
         let r_off = self.transport.right_trigger_off();

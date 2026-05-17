@@ -286,9 +286,10 @@ const SETTINGS_GROUPS = [
     { k: "gear_shift_amp",           kind: "u8" },
     { k: "gear_shift_duration_ms",   kind: "f32", lo: 20, hi: 400 },
   ]},
-  { title: "Light bar", fields: [
-    { k: "enable_lightbar",      kind: "bool" },
-    { k: "lightbar_brightness",  kind: "u8" },
+  { title: "Tachometer LEDs", fields: [
+    { k: "enable_lightbar",         kind: "bool" },
+    { k: "lightbar_brightness",     kind: "u8" },
+    { k: "enable_player_led_tach",  kind: "bool" },
   ]},
   { title: "System", fields: [
     { k: "enable_startup_pulse", kind: "bool" },

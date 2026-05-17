@@ -738,14 +738,20 @@ fn section_gear_shift(ui: &mut egui::Ui, s: &mut Settings) -> bool {
 
 fn section_lightbar(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     let mut c = false;
-    header(ui, "Light bar");
+    header(ui, "Tachometer LEDs");
     c |= ui
-        .checkbox(&mut s.enable_lightbar, "Tachometer (green → red as RPM nears redline)")
+        .checkbox(&mut s.enable_lightbar, "Light bar — colour (green → red at redline)")
         .changed();
-    c |= slider_u8(ui, "Brightness", &mut s.lightbar_brightness, 0, 255);
+    c |= slider_u8(ui, "Light-bar brightness", &mut s.lightbar_brightness, 0, 255);
+    c |= ui
+        .checkbox(
+            &mut s.enable_player_led_tach,
+            "Player LEDs — centre-out bar (white, easier to see)",
+        )
+        .changed();
     ui.label(
         RichText::new(
-            "Overrides Steam Input's lightbar colour while enabled. Disable to give it back.",
+            "Light bar runs along the touchpad edges; player LEDs are the row in the middle. Use either, both, or neither.",
         )
         .color(DIM)
         .small(),

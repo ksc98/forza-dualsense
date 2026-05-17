@@ -120,6 +120,10 @@ pub struct Settings {
     /// Steam-managed colour; turn it off to give the light bar back.
     pub enable_lightbar: bool,
     pub lightbar_brightness: u8,
+    /// Drive the 5 player LEDs (the centred row under the touchpad)
+    /// as a centre-out RPM bar. White only — no colour — but much
+    /// easier to glance at than the side-mounted light bar.
+    pub enable_player_led_tach: bool,
 
     // --- System ---
     pub enable_startup_pulse: bool,
@@ -180,6 +184,7 @@ impl Default for Settings {
 
             enable_lightbar: true,
             lightbar_brightness: 200,
+            enable_player_led_tach: true,
 
             enable_startup_pulse: true,
             startup_pulse_force: 150,
