@@ -70,12 +70,13 @@ impl eframe::App for GuiApp {
             .resizable(false)
             .exact_width(380.0)
             .show(ctx, |ui| {
-                ui.add_space(6.0);
-                ui.label(RichText::new("Settings").size(18.0).strong());
-                ui.separator();
                 egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+                    .id_source("settings_scroll")
+                    .auto_shrink([false; 2])
                     .show(ui, |ui| {
+                        ui.add_space(6.0);
+                        ui.label(RichText::new("Settings").size(18.0).strong());
+                        ui.separator();
                         let mut new_settings = snapshot.settings.clone();
                         let mut changed = false;
                         changed |= settings_panel(ui, &mut new_settings);
@@ -92,7 +93,8 @@ impl eframe::App for GuiApp {
             .frame(egui::Frame::none().fill(PANEL_BG).inner_margin(egui::Margin::symmetric(14.0, 12.0)))
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical()
-                    .auto_shrink([false, false])
+                    .id_source("central_scroll")
+                    .auto_shrink([false; 2])
                     .show(ui, |ui| {
                         update_banner(ui, &snapshot.update_status);
                         stat_strip(ui, &snapshot);
@@ -579,6 +581,20 @@ fn section_shift_rev(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Freq (Hz)", &mut s.rev_limit_freq, 1, 60);
     c |= slider_u8(ui, "Amp", &mut s.rev_limit_amp, 0, 255);
     c |= slider_f32(ui, "Hold (ms)", &mut s.rev_limit_hold_ms, 0.0, 500.0);
+
+    header(ui, "Redline rumble");
+    c |= ui
+        .checkbox(&mut s.enable_redline_rumble, "Rumble body as RPM nears redline")
+        .changed();
+    c |= slider_f32(ui, "Start (rpm/max)", &mut s.redline_rumble_start_ratio, 0.5, 1.0);
+    c |= slider_u8(ui, "Peak intensity", &mut s.redline_rumble_max, 0, 255);
+    ui.label(
+        RichText::new(
+            "Drives the controller's main rumble motors. Takes over Steam Input's rumble passthrough while enabled.",
+        )
+        .color(DIM)
+        .small(),
+    );
     c
 }
 

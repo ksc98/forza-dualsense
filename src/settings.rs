@@ -48,6 +48,13 @@ pub struct Settings {
     pub rev_limit_amp: u8,
     pub rev_limit_hold_ms: f32,
 
+    /// Drive the controller's main rumble motors based on RPM proximity
+    /// to redline. Enabling this takes over the rumble bytes Steam Input
+    /// would otherwise own.
+    pub enable_redline_rumble: bool,
+    pub redline_rumble_start_ratio: f32,
+    pub redline_rumble_max: u8,
+
     pub enable_gear_shift: bool,
     pub enable_gear_shift_brake: bool,
     pub gear_shift_freq: u8,
@@ -85,10 +92,10 @@ impl Default for Settings {
             wall_zones: 2,
 
             enable_brake_resistance: true,
-            brake_deadzone: 50,
-            brake_baseline_force: 10,
-            brake_max_force: 60,
-            brake_curve: 5.0,
+            brake_deadzone: 20,
+            brake_baseline_force: 20,
+            brake_max_force: 110,
+            brake_curve: 2.0,
             brake_wall_engage_at: 250,
             brake_wall_release_at: 200,
 
@@ -116,6 +123,10 @@ impl Default for Settings {
             rev_limit_freq: 20,
             rev_limit_amp: 1,
             rev_limit_hold_ms: 120.0,
+
+            enable_redline_rumble: true,
+            redline_rumble_start_ratio: 0.85,
+            redline_rumble_max: 200,
 
             enable_gear_shift: true,
             enable_gear_shift_brake: true,

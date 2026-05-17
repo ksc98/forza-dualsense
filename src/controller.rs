@@ -185,6 +185,29 @@ impl Controller {
         self.update_active(t, s)
     }
 
+    /// `(heavy, light)` motor intensities in 0..=255. Rumble ramps from
+    /// zero at `redline_rumble_start_ratio` to `redline_rumble_max` at
+    /// max RPM. Returns `(0, 0)` when telemetry is dead, so the motors
+    /// stay quiet in menus and Steam keeps ownership.
+    pub fn rumble(&self, t: &Telemetry, s: &Settings) -> (u8, u8) {
+        if !s.enable_redline_rumble {
+            return (0, 0);
+        }
+        let active = t.on || s.enable_test_force;
+        if !active || t.max_rpm <= 0.0 {
+            return (0, 0);
+        }
+        let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);
+        let start = s.redline_rumble_start_ratio.clamp(0.0, 0.999);
+        if ratio <= start {
+            return (0, 0);
+        }
+        let span = (1.0 - start).max(1e-3);
+        let k = ((ratio - start) / span).clamp(0.0, 1.0).powf(1.5);
+        let level = (k * s.redline_rumble_max as f32).round() as u8;
+        (level, level)
+    }
+
     fn update_active(&mut self, t: &Telemetry, s: &Settings) -> (Effect, Effect) {
         self.refresh_wall_if_needed(s);
         let now = Instant::now();

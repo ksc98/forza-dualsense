@@ -116,7 +116,8 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
         }
 
         let (l2, r2) = controller.update(&telemetry, &settings);
-        dev.write_triggers(&l2, &r2)?;
+        let (rumble_heavy, rumble_light) = controller.rumble(&telemetry, &settings);
+        dev.write_outputs(&l2, &r2, rumble_heavy, rumble_light)?;
         {
             let mut s = state.lock();
             s.last_l2 = l2;

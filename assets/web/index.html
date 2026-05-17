@@ -357,6 +357,11 @@ const SETTINGS_GROUPS = [
     { k: "rev_limit_amp",      kind: "u8" },
     { k: "rev_limit_hold_ms",  kind: "f32", lo: 0, hi: 500 },
   ]},
+  { title: "Redline rumble", fields: [
+    { k: "enable_redline_rumble",      kind: "bool" },
+    { k: "redline_rumble_start_ratio", kind: "f32", lo: 0.5, hi: 1 },
+    { k: "redline_rumble_max",         kind: "u8" },
+  ]},
   { title: "System", fields: [
     { k: "enable_startup_pulse", kind: "bool" },
     { k: "startup_pulse_force",  kind: "u8" },
