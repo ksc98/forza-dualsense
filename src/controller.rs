@@ -28,6 +28,29 @@ pub struct TriggerAnimations {
     shift_until: Option<Instant>,
 }
 
+/// Standard HSV→RGB. `h` in degrees 0..=360, `s` and `v` in 0..=1.
+/// Used by the light bar tachometer; kept here because nothing else
+/// in the project needs colour math.
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (u8, u8, u8) {
+    let h = h.rem_euclid(360.0);
+    let c = v * s;
+    let x = c * (1.0 - ((h / 60.0).rem_euclid(2.0) - 1.0).abs());
+    let m = v - c;
+    let (r1, g1, b1) = match (h / 60.0) as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    (
+        ((r1 + m) * 255.0).round() as u8,
+        ((g1 + m) * 255.0).round() as u8,
+        ((b1 + m) * 255.0).round() as u8,
+    )
+}
+
 /// Map a pedal press through the configured shape into a force value.
 /// The press is normalised over `deadzone..ceiling` so the shape
 /// always spans the active travel of the pedal.
@@ -202,6 +225,33 @@ impl Controller {
             return (Effect::Off, Effect::Off);
         }
         self.update_active(t, s)
+    }
+
+    /// Tachometer colour for the DualSense light bar based on RPM
+    /// proximity to redline. Returns `(r, g, b)` in 0..=255. When the
+    /// feature is off, no telemetry is arriving, or the engine isn't
+    /// reporting `max_rpm`, returns black so the firmware will fall
+    /// back to whatever Steam Input wrote last (or just be dark).
+    pub fn lightbar(&self, t: &Telemetry, s: &Settings) -> (u8, u8, u8) {
+        if !s.enable_lightbar {
+            return (0, 0, 0);
+        }
+        let active = t.on || s.enable_idle_preview;
+        if !active || t.max_rpm <= 0.0 {
+            return (0, 0, 0);
+        }
+        let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);
+        // Hue from 120° (green) at 0% RPM down to 0° (red) at redline.
+        // Saturation and value both 1.0 — picking from the pure-color
+        // edge of the HSV cone, then scaled by user brightness.
+        let hue = 120.0 * (1.0 - ratio);
+        let (r, g, b) = hsv_to_rgb(hue, 1.0, 1.0);
+        let scale = s.lightbar_brightness as f32 / 255.0;
+        (
+            (r as f32 * scale).round() as u8,
+            (g as f32 * scale).round() as u8,
+            (b as f32 * scale).round() as u8,
+        )
     }
 
     fn update_active(&mut self, t: &Telemetry, s: &Settings) -> (Effect, Effect) {

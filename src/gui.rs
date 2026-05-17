@@ -574,6 +574,7 @@ fn settings_panel(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     changed |= section_abs(ui, s);
     changed |= section_throttle(ui, s);
     changed |= section_gear_shift(ui, s);
+    changed |= section_lightbar(ui, s);
     changed |= section_system(ui, s);
     changed
 }
@@ -681,6 +682,23 @@ fn section_gear_shift(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Freq (Hz)", &mut s.gear_shift_freq, 1, 60);
     c |= slider_u8(ui, "Amp", &mut s.gear_shift_amp, 0, 255);
     c |= slider_f32(ui, "Duration (ms)", &mut s.gear_shift_duration_ms, 20.0, 400.0);
+    c
+}
+
+fn section_lightbar(ui: &mut egui::Ui, s: &mut Settings) -> bool {
+    let mut c = false;
+    header(ui, "Light bar");
+    c |= ui
+        .checkbox(&mut s.enable_lightbar, "Tachometer (green → red as RPM nears redline)")
+        .changed();
+    c |= slider_u8(ui, "Brightness", &mut s.lightbar_brightness, 0, 255);
+    ui.label(
+        RichText::new(
+            "Overrides Steam Input's lightbar colour while enabled. Disable to give it back.",
+        )
+        .color(DIM)
+        .small(),
+    );
     c
 }
 

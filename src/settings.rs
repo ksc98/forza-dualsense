@@ -114,6 +114,13 @@ pub struct Settings {
     pub gear_shift_amp: u8,
     pub gear_shift_duration_ms: f32,
 
+    /// Drive the DualSense light bar like a tachometer — sweeps from
+    /// green at low RPM through yellow to red at redline. Sends the
+    /// LED control bits in every output report so it overrides any
+    /// Steam-managed colour; turn it off to give the light bar back.
+    pub enable_lightbar: bool,
+    pub lightbar_brightness: u8,
+
     // --- System ---
     pub enable_startup_pulse: bool,
     pub startup_pulse_force: u8,
@@ -170,6 +177,9 @@ impl Default for Settings {
             gear_shift_freq: 20,
             gear_shift_amp: 255,
             gear_shift_duration_ms: 100.0,
+
+            enable_lightbar: true,
+            lightbar_brightness: 200,
 
             enable_startup_pulse: true,
             startup_pulse_force: 150,

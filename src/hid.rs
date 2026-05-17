@@ -13,11 +13,15 @@ pub const VID_SONY: u16 = 0x054C;
 pub const PID_DUALSENSE: u16 = 0x0CE6;
 pub const PID_DUALSENSE_EDGE: u16 = 0x0DF2;
 
-/// Bit 2 = R trigger effect, bit 3 = L trigger effect. Leaving bits 0/1
-/// cleared keeps Steam's rumble bytes untouched, so motor rumble
-/// passthrough from the game (or Steam Input) stays intact while we
-/// only own the triggers.
+/// Valid-flag 0: bit 2 = R trigger effect, bit 3 = L trigger effect.
+/// Leaving bits 0/1 cleared keeps Steam's rumble bytes untouched so
+/// motor rumble passthrough from the game (or Steam Input) stays intact.
 const FLAGS_TRIGGERS_ONLY: u8 = 0x04 | 0x08;
+/// Valid-flag 1: tells the firmware to honour our LED control bytes
+/// (lightbar RGB + LED brightness override). bit 2 = LED config,
+/// bit 4 = lightbar control. Only set when the lightbar feature is
+/// on so we don't fight Steam Input for the colour otherwise.
+const FLAGS_LIGHTBAR: u8 = 0x04 | 0x10;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Transport {
@@ -65,6 +69,22 @@ impl Transport {
         }
     }
 
+    /// Offset of the valid-flag-1 byte (LED / audio control flags).
+    /// Sits one slot past the trigger-flag byte.
+    fn flags1_off(self) -> usize {
+        self.flags_off() + 1
+    }
+
+    /// `(r_off, g_off, b_off)` for the light bar RGB bytes. Verified
+    /// against the `dualsense-rs` crate's offsets which match our
+    /// existing trigger offsets, so we know the byte-stream framing
+    /// is identical.
+    fn lightbar_rgb_off(self) -> (usize, usize, usize) {
+        match self {
+            Transport::Usb => (45, 46, 47),
+            Transport::Bluetooth => (46, 47, 48),
+        }
+    }
 }
 
 pub struct DualSense {
@@ -138,9 +158,15 @@ impl DualSense {
         }
     }
 
-    /// Write trigger effects only. Leaves the rumble-motor bytes
-    /// untouched so the game (or Steam Input) keeps owning haptics.
-    pub fn write_triggers(&self, l2: &Effect, r2: &Effect) -> Result<()> {
+    /// Write trigger effects, and optionally drive the light bar. Pass
+    /// `(0, 0, 0)` as `lightbar` to leave the LED control flag clear
+    /// and let Steam Input keep ownership of the colour.
+    pub fn write_triggers(
+        &self,
+        l2: &Effect,
+        r2: &Effect,
+        lightbar: (u8, u8, u8),
+    ) -> Result<()> {
         let size = self.transport.report_size();
         let mut buf = vec![0u8; size];
         buf[0] = self.transport.report_id();
@@ -149,6 +175,14 @@ impl DualSense {
         // in the wild tolerates. If a future firmware enforces Sony's
         // rotating-nibble protocol, add a per-write counter here.
         buf[self.transport.flags_off()] = FLAGS_TRIGGERS_ONLY;
+        let (lr, lg, lb) = lightbar;
+        if lr != 0 || lg != 0 || lb != 0 {
+            buf[self.transport.flags1_off()] = FLAGS_LIGHTBAR;
+            let (r_off, g_off, b_off) = self.transport.lightbar_rgb_off();
+            buf[r_off] = lr;
+            buf[g_off] = lg;
+            buf[b_off] = lb;
+        }
 
         let r_off = self.transport.right_trigger_off();
         let l_off = self.transport.left_trigger_off();

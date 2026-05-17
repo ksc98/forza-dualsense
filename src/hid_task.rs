@@ -68,9 +68,9 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
         }
         if enable {
             let pulse = Effect::rigid(pulse_force as f32);
-            dev.write_triggers(&pulse, &pulse)?;
+            dev.write_triggers(&pulse, &pulse, (0, 0, 0))?;
             sleep(Duration::from_millis(150));
-            dev.write_triggers(&Effect::Off, &Effect::Off)?;
+            dev.write_triggers(&Effect::Off, &Effect::Off, (0, 0, 0))?;
         }
     }
 
@@ -110,10 +110,11 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
         } else if packets > 0 && last_telemetry_change.elapsed() > TELEMETRY_LOST_AFTER {
             // Telemetry has been silent long enough — neutral triggers
             // and idle. The supervisor (this same fn) keeps spinning.
-            dev.write_triggers(&Effect::Off, &Effect::Off)?;
+            dev.write_triggers(&Effect::Off, &Effect::Off, (0, 0, 0))?;
         }
 
         let (l2, r2) = controller.update(&telemetry, &settings, idle_press);
-        dev.write_triggers(&l2, &r2)?;
+        let lightbar = controller.lightbar(&telemetry, &settings);
+        dev.write_triggers(&l2, &r2, lightbar)?;
     }
 }
