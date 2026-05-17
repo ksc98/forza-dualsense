@@ -174,7 +174,12 @@ impl eframe::App for GuiApp {
                         ui.separator();
                         let mut new_settings = snapshot.settings.clone();
                         let mut changed = false;
-                        changed |= settings_panel(ui, &mut new_settings);
+                        changed |= settings_panel(
+                            ui,
+                            &mut new_settings,
+                            snapshot.max_l2_seen,
+                            snapshot.max_r2_seen,
+                        );
                         if changed {
                             self.state.lock().settings = new_settings.clone();
                             self.pending_save = Some((new_settings, std::time::Instant::now()));
@@ -240,6 +245,8 @@ impl GuiApp {
             telemetry: s.telemetry,
             live_l2: live.0,
             live_r2: live.1,
+            max_l2_seen: s.max_l2_seen,
+            max_r2_seen: s.max_r2_seen,
             web_url: s.web_url.clone(),
             settings: s.settings.clone(),
             update_status: s.update_status.clone(),
@@ -263,6 +270,10 @@ struct SnapshotForUi {
     /// inputs when no telemetry is arriving.
     live_l2: u8,
     live_r2: u8,
+    /// Peak L2 / R2 ever observed this session — drives the "Use peak
+    /// as wall" calibration button under each pedal section.
+    max_l2_seen: u8,
+    max_r2_seen: u8,
     web_url: String,
     settings: Settings,
     update_status: UpdateStatus,
@@ -568,14 +579,38 @@ fn diagnostics(ui: &mut egui::Ui, snap: &SnapshotForUi) {
 // Settings panel
 // ────────────────────────────────────────────────────────────────────
 
-fn settings_panel(ui: &mut egui::Ui, s: &mut Settings) -> bool {
+fn settings_panel(ui: &mut egui::Ui, s: &mut Settings, peak_l2: u8, peak_r2: u8) -> bool {
     let mut changed = false;
-    changed |= section_brake(ui, s);
+    changed |= section_brake(ui, s, peak_l2);
     changed |= section_abs(ui, s);
-    changed |= section_throttle(ui, s);
+    changed |= section_throttle(ui, s, peak_r2);
     changed |= section_gear_shift(ui, s);
     changed |= section_lightbar(ui, s);
     changed |= section_system(ui, s);
+    changed
+}
+
+/// Compact "Peak: N  [Use as wall]" row. Sets `wall_engage_at` to the
+/// observed peak, keeping the existing hysteresis margin (min 20).
+/// Disabled until the user has actually pressed the trigger.
+fn calibration_row(
+    ui: &mut egui::Ui,
+    peak: u8,
+    engage_at: &mut u8,
+    release_at: &mut u8,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("Peak: {peak}")).color(DIM).small());
+        let button = egui::Button::new("Use as wall");
+        let response = ui.add_enabled(peak > 0, button);
+        if response.clicked() {
+            let margin = engage_at.saturating_sub(*release_at).max(20);
+            *engage_at = peak;
+            *release_at = peak.saturating_sub(margin);
+            changed = true;
+        }
+    });
     changed
 }
 
@@ -627,7 +662,7 @@ fn shape_picker(ui: &mut egui::Ui, label: &str, value: &mut crate::settings::Ped
     changed
 }
 
-fn section_brake(ui: &mut egui::Ui, s: &mut Settings) -> bool {
+fn section_brake(ui: &mut egui::Ui, s: &mut Settings, peak: u8) -> bool {
     let mut c = false;
     header(ui, "Brake (L2)");
     c |= ui.checkbox(&mut s.enable_brake_resistance, "Resistance").changed();
@@ -637,6 +672,12 @@ fn section_brake(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Deadzone", &mut s.brake_deadzone, 0, 255);
     c |= slider_u8(ui, "Wall engage at", &mut s.brake_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.brake_wall_release_at, 0, 255);
+    c |= calibration_row(
+        ui,
+        peak,
+        &mut s.brake_wall_engage_at,
+        &mut s.brake_wall_release_at,
+    );
     c |= ui.checkbox(&mut s.enable_handbrake_bonus, "Handbrake bonus").changed();
     c |= slider_u8(ui, "Handbrake bonus force", &mut s.handbrake_bonus, 0, 255);
     c
@@ -661,7 +702,7 @@ fn section_abs(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c
 }
 
-fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
+fn section_throttle(ui: &mut egui::Ui, s: &mut Settings, peak: u8) -> bool {
     let mut c = false;
     header(ui, "Throttle (R2)");
     c |= ui.checkbox(&mut s.enable_throttle_resistance, "Resistance").changed();
@@ -671,6 +712,12 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     c |= slider_u8(ui, "Deadzone", &mut s.accel_deadzone, 0, 255);
     c |= slider_u8(ui, "Wall engage at", &mut s.throttle_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.throttle_wall_release_at, 0, 255);
+    c |= calibration_row(
+        ui,
+        peak,
+        &mut s.throttle_wall_engage_at,
+        &mut s.throttle_wall_release_at,
+    );
     c
 }
 

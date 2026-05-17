@@ -2,7 +2,7 @@
 
 [package]
 name = "forza-dualsense"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "Adaptive trigger feedback for Forza Horizon on the DualSense controller"
 license = "MIT OR Apache-2.0"

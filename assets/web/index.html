@@ -250,7 +250,7 @@
 
 <script>
 const SETTINGS_GROUPS = [
-  { title: "Brake (L2)", fields: [
+  { title: "Brake (L2)", calibrate: "l2", fields: [
     { k: "enable_brake_resistance", kind: "bool" },
     { k: "brake_shape",            kind: "shape" },
     { k: "brake_min_force",        kind: "u8" },
@@ -270,7 +270,7 @@ const SETTINGS_GROUPS = [
     { k: "abs_freq",                     kind: "u8", lo: 1, hi: 60 },
     { k: "abs_amp",                      kind: "u8" },
   ]},
-  { title: "Throttle (R2)", fields: [
+  { title: "Throttle (R2)", calibrate: "r2", fields: [
     { k: "enable_throttle_resistance", kind: "bool" },
     { k: "throttle_shape",             kind: "shape" },
     { k: "throttle_min_force",         kind: "u8" },
@@ -302,6 +302,10 @@ const SETTINGS_GROUPS = [
 ];
 
 let currentSettings = null;
+// Latest peak L2/R2 from the WS snapshot. Used by the "Use as wall"
+// calibration button under each pedal section.
+let lastPeakL2 = 0;
+let lastPeakR2 = 0;
 let suppressPost = false;
 
 function renderSettings(settings) {
@@ -361,8 +365,61 @@ function renderSettings(settings) {
       row.appendChild(inp);
       el.appendChild(row);
     }
+    if (grp.calibrate) {
+      el.appendChild(calibrationRow(grp.calibrate));
+    }
     root.appendChild(el);
   }
+}
+
+// Per-pedal "Peak: N  [Use as wall]" row. Reads the latest peak from
+// the shared lastPeakL2/R2 (refreshed on every WS snapshot) and, on
+// click, snaps wall_engage_at to the peak while keeping the existing
+// hysteresis margin (min 20 raw units).
+function calibrationRow(pedal) {
+  const row = document.createElement("div");
+  row.className = "field";
+  const label = document.createElement("label");
+  label.id = `peak-${pedal}`;
+  label.style.color = "var(--dim)";
+  const peak = pedal === "l2" ? lastPeakL2 : lastPeakR2;
+  label.textContent = `Peak: ${peak}`;
+  const btn = document.createElement("button");
+  btn.id = `cal-${pedal}`;
+  btn.textContent = "Use as wall";
+  btn.style.cssText = "background:var(--panel2); border:1px solid var(--line); color:var(--text); padding:4px 10px; border-radius:4px; cursor:pointer;";
+  btn.disabled = peak === 0;
+  btn.addEventListener("click", () => applyCalibration(pedal));
+  row.appendChild(label);
+  row.appendChild(btn);
+  return row;
+}
+
+function refreshPeakLabels() {
+  const l2 = document.getElementById("peak-l2");
+  if (l2) l2.textContent = `Peak: ${lastPeakL2}`;
+  const r2 = document.getElementById("peak-r2");
+  if (r2) r2.textContent = `Peak: ${lastPeakR2}`;
+  const calL2 = document.getElementById("cal-l2");
+  if (calL2) calL2.disabled = lastPeakL2 === 0;
+  const calR2 = document.getElementById("cal-r2");
+  if (calR2) calR2.disabled = lastPeakR2 === 0;
+}
+
+function applyCalibration(pedal) {
+  if (!currentSettings) return;
+  const peak = pedal === "l2" ? lastPeakL2 : lastPeakR2;
+  if (peak === 0) return;
+  const engageKey = pedal === "l2" ? "brake_wall_engage_at" : "throttle_wall_engage_at";
+  const releaseKey = pedal === "l2" ? "brake_wall_release_at" : "throttle_wall_release_at";
+  const margin = Math.max(currentSettings[engageKey] - currentSettings[releaseKey], 20);
+  currentSettings[engageKey] = peak;
+  currentSettings[releaseKey] = Math.max(0, peak - margin);
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(currentSettings),
+  }).then(() => renderSettings(currentSettings));
 }
 
 function mutate(key, value) {
@@ -502,6 +559,9 @@ function renderUpdateBanner(status) {
 function render(snap) {
   renderUpdateBanner(snap.update_status);
   document.getElementById("version").textContent = `udp ${snap.udp_host}:${snap.udp_port}`;
+  lastPeakL2 = snap.max_l2_seen ?? 0;
+  lastPeakR2 = snap.max_r2_seen ?? 0;
+  refreshPeakLabels();
 
   const hidDot = document.getElementById("hid-dot");
   const hidLbl = document.getElementById("hid-label");

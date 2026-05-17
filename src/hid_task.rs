@@ -104,6 +104,21 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             (s.telemetry, s.settings.clone(), s.packets_received)
         };
 
+        // Track the peak press the user has ever produced, from either
+        // source. Drives the calibration helper in the GUI so the wall
+        // can be set right at the user's real max instead of an
+        // assumed 255.
+        {
+            let (l2_press, r2_press) = if telemetry.on {
+                (telemetry.brake, telemetry.accel)
+            } else {
+                idle_press.unwrap_or((0, 0))
+            };
+            let mut s = state.lock();
+            s.max_l2_seen = s.max_l2_seen.max(l2_press);
+            s.max_r2_seen = s.max_r2_seen.max(r2_press);
+        }
+
         if packets != last_seen_packets {
             last_seen_packets = packets;
             last_telemetry_change = Instant::now();

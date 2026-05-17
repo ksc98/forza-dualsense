@@ -37,6 +37,12 @@ pub struct AppState {
     /// so the live-position cursor on the curve graph follows the
     /// physical trigger when no game telemetry is arriving.
     pub last_trigger_input: Option<(u8, u8)>,
+    /// Highest analog L2 / R2 press value ever observed this session,
+    /// from either game telemetry or the controller's HID input. Used
+    /// to calibrate `wall_engage_at` to the actual hardware range —
+    /// most controllers max out a few counts below 255.
+    pub max_l2_seen: u8,
+    pub max_r2_seen: u8,
 }
 
 impl AppState {
@@ -57,6 +63,8 @@ impl AppState {
             last_settings_save_error: String::new(),
             update_status: UpdateStatus::default(),
             last_trigger_input: None,
+            max_l2_seen: 0,
+            max_r2_seen: 0,
         }
     }
 }
@@ -84,6 +92,10 @@ pub struct StateSnapshot<'a> {
     /// controller's actual analog inputs when idle.
     pub live_l2: u8,
     pub live_r2: u8,
+    /// Peak L2 / R2 press values observed this session — exposed so the
+    /// GUI can offer a "calibrate the wall to your hardware" action.
+    pub max_l2_seen: u8,
+    pub max_r2_seen: u8,
     pub uptime_s: f32,
     pub settings: &'a Settings,
     pub update_status: &'a UpdateStatus,
@@ -115,6 +127,8 @@ impl AppState {
             telemetry: self.telemetry,
             live_l2,
             live_r2,
+            max_l2_seen: self.max_l2_seen,
+            max_r2_seen: self.max_r2_seen,
             uptime_s: self.started_at.elapsed().as_secs_f32(),
             settings: &self.settings,
             update_status: &self.update_status,
