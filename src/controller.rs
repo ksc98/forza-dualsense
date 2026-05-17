@@ -4,19 +4,25 @@ use crate::settings::Settings;
 use crate::telemetry::Telemetry;
 use crate::triggers::{Effect, RAW_MAX};
 
-/// Build a synthetic telemetry frame fed from the controller's actual
-/// L2/R2 analog values, so idle preview drives the configured curves
-/// with the user's real physical press — no magic constants.
+/// Build a synthetic telemetry frame from the controller's actual
+/// L2/R2 analog values, so idle preview can drive the configured
+/// curves without a live Forza session.
+///
+/// Every other field is left at default (zero). Earlier versions
+/// populated `gear`, `speed_kmh`, `rpm`, `max_rpm` with fake values
+/// to feed the rev limiter and redline rumble — both features are
+/// gone now, so the fake values do nothing except trigger spurious
+/// effects:
+///   * Stale gear-shift bursts fire when the synth's fake gear (3)
+///     differs from the last real gear seen, looking like a buzz
+///     "spam" every time the game pauses or stops streaming.
+///   * `abs_pulse` and friends become evaluable in idle mode and
+///     could fire if slip ratios happen to land non-zero.
 fn synth_telemetry(brake: u8, accel: u8) -> Telemetry {
     Telemetry {
         on: true,
         brake,
         accel,
-        speed_kmh: 60.0,
-        rpm: 3500.0,
-        max_rpm: 8000.0,
-        gear: 3,
-        handbrake: 0,
         ..Telemetry::default()
     }
 }
@@ -228,16 +234,14 @@ impl Controller {
     }
 
     /// Tachometer colour for the DualSense light bar based on RPM
-    /// proximity to redline. Returns `(r, g, b)` in 0..=255. When the
-    /// feature is off, no telemetry is arriving, or the engine isn't
-    /// reporting `max_rpm`, returns black so the firmware will fall
-    /// back to whatever Steam Input wrote last (or just be dark).
+    /// proximity to redline. Returns `(r, g, b)` in 0..=255.
+    ///
+    /// Only fires when *live* game telemetry is arriving — never on
+    /// idle preview. Idle preview synthesises trigger presses but
+    /// has no RPM signal, so the only honest output here is black
+    /// (which leaves Steam Input to repaint the light bar).
     pub fn lightbar(&self, t: &Telemetry, s: &Settings) -> (u8, u8, u8) {
-        if !s.enable_lightbar {
-            return (0, 0, 0);
-        }
-        let active = t.on || s.enable_idle_preview;
-        if !active || t.max_rpm <= 0.0 {
+        if !s.enable_lightbar || !t.on || t.max_rpm <= 0.0 {
             return (0, 0, 0);
         }
         let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);
@@ -264,11 +268,10 @@ impl Controller {
     /// Returns 0 (all off) when the feature is disabled, when there's
     /// no live engine telemetry, or in menus.
     pub fn player_led_tach(&self, t: &Telemetry, s: &Settings) -> u8 {
-        if !s.enable_player_led_tach {
-            return 0;
-        }
-        let active = t.on || s.enable_idle_preview;
-        if !active || t.max_rpm <= 0.0 {
+        // Same rule as the light bar: only drive the LEDs when live
+        // RPM telemetry is arriving. Idle preview has nothing useful
+        // to show here.
+        if !s.enable_player_led_tach || !t.on || t.max_rpm <= 0.0 {
             return 0;
         }
         let ratio = (t.rpm / t.max_rpm).clamp(0.0, 1.0);

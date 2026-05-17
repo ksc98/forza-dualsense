@@ -99,9 +99,25 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             state.lock().last_trigger_input = Some(p);
         }
 
-        let (telemetry, settings, packets) = {
+        let (telemetry_raw, settings, packets) = {
             let s = state.lock();
             (s.telemetry, s.settings.clone(), s.packets_received)
+        };
+
+        // Detect stale telemetry — the game crashed or stopped streaming
+        // but the last frame still has on=true and stale RPM/speed.
+        // Treat that as no telemetry at all so the LED tachs go dark
+        // and idle preview can take over the trigger curves.
+        if packets != last_seen_packets {
+            last_seen_packets = packets;
+            last_telemetry_change = Instant::now();
+        }
+        let telemetry_stale =
+            packets > 0 && last_telemetry_change.elapsed() > TELEMETRY_LOST_AFTER;
+        let telemetry = if telemetry_stale {
+            crate::telemetry::Telemetry::default()
+        } else {
+            telemetry_raw
         };
 
         // Track the peak press the user has ever produced, from either
@@ -117,15 +133,6 @@ fn drive(dev: &DualSense, state: &SharedState) -> anyhow::Result<()> {
             let mut s = state.lock();
             s.max_l2_seen = s.max_l2_seen.max(l2_press);
             s.max_r2_seen = s.max_r2_seen.max(r2_press);
-        }
-
-        if packets != last_seen_packets {
-            last_seen_packets = packets;
-            last_telemetry_change = Instant::now();
-        } else if packets > 0 && last_telemetry_change.elapsed() > TELEMETRY_LOST_AFTER {
-            // Telemetry has been silent long enough — neutral triggers
-            // and idle. The supervisor (this same fn) keeps spinning.
-            dev.write_triggers(&Effect::Off, &Effect::Off, (0, 0, 0), 0)?;
         }
 
         let (l2, r2) = controller.update(&telemetry, &settings, idle_press);
