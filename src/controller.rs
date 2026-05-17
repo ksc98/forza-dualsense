@@ -28,30 +28,56 @@ pub struct TriggerAnimations {
     shift_until: Option<Instant>,
 }
 
-/// Piecewise brake-pedal force curve. The lower segment is linear so
-/// the player can modulate just like a real pedal; the upper segment
-/// ramps steeply to `max_force` so the lock-up zone takes deliberate
-/// effort to enter. `curve` shapes only the bite-zone steepness.
+/// Map a pedal press through the configured shape into a force value.
+/// The press is normalised over `deadzone..ceiling` so the shape
+/// always spans the active travel of the pedal.
+pub(crate) fn pedal_force(
+    value: u8,
+    deadzone: u8,
+    ceiling: u8,
+    min: u8,
+    max: u8,
+    shape: crate::settings::PedalShape,
+) -> f32 {
+    use crate::settings::PedalShape;
+    if value <= deadzone {
+        // Constant is flat across the entire press range, including
+        // through the deadzone — other shapes sit at the floor.
+        return if shape == PedalShape::Constant {
+            max as f32
+        } else {
+            min as f32
+        };
+    }
+    let span = ceiling.saturating_sub(deadzone).max(1) as f32;
+    let t = (((value - deadzone) as f32) / span).min(1.0);
+    let y = shape.apply(t);
+    min as f32 + (max as f32 - min as f32) * y
+}
+
+/// Brake force at a given press. Same math the GUI uses to draw the
+/// curve preview, so what the player sees matches what they feel.
 pub(crate) fn brake_ramp(value: u8, s: &Settings) -> f32 {
-    let deadzone = s.brake_deadzone;
-    let baseline = s.brake_baseline_force as f32;
-    if value < deadzone {
-        return baseline;
-    }
-    // Both spans below are clamped to ≥1 so the divides can't NaN even
-    // when the user drags deadzone/bite_point/wall_at to overlap.
-    let bite_point = s.brake_bite_point.max(deadzone.saturating_add(1));
-    let bite_span = (bite_point - deadzone).max(1) as f32;
-    let bite_force = s.brake_bite_force as f32;
-    if value < bite_point {
-        let r = (value - deadzone) as f32 / bite_span;
-        return baseline + (bite_force - baseline) * r;
-    }
-    let wall_at = s.brake_wall_engage_at.max(bite_point.saturating_add(1));
-    let wall_span = (wall_at - bite_point).max(1) as f32;
-    let top = value.min(wall_at);
-    let r = (top - bite_point) as f32 / wall_span;
-    bite_force + (s.brake_max_force as f32 - bite_force) * r.powf(s.brake_curve)
+    pedal_force(
+        value,
+        s.brake_deadzone,
+        s.brake_wall_engage_at,
+        s.brake_min_force,
+        s.brake_max_force,
+        s.brake_shape,
+    )
+}
+
+/// Throttle force at a given press.
+pub(crate) fn throttle_force(value: u8, s: &Settings) -> f32 {
+    pedal_force(
+        value,
+        s.accel_deadzone,
+        s.throttle_wall_engage_at,
+        s.throttle_min_force,
+        s.throttle_max_force,
+        s.throttle_shape,
+    )
 }
 
 /// Returns whether the trigger is currently in its rigid "wall" zone.
@@ -125,16 +151,7 @@ impl TriggerAnimations {
         if !s.enable_throttle_resistance {
             return Effect::Off;
         }
-        // Throttle is a flat constant force above the deadzone — a real
-        // gas pedal has a uniform spring all the way through, not a
-        // ramp. The wall effect at `throttle_wall_engage_at` is handled
-        // separately by `r2()`.
-        let force = if t.accel >= s.accel_deadzone {
-            s.throttle_stiffness as f32
-        } else {
-            0.0
-        };
-        Effect::rigid(force)
+        Effect::rigid(throttle_force(t.accel, s))
     }
 }
 

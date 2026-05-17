@@ -402,13 +402,7 @@ fn curves_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
             THROTTLE,
             card_w,
             snap.live_r2,
-            |v| {
-                if v >= snap.settings.accel_deadzone {
-                    snap.settings.throttle_stiffness as f32
-                } else {
-                    0.0
-                }
-            },
+            |v| crate::controller::throttle_force(v, &snap.settings),
             &throttle_markers(&snap.settings),
         );
     });
@@ -424,7 +418,6 @@ struct CurveMarker {
 fn brake_markers(s: &Settings) -> Vec<CurveMarker> {
     vec![
         CurveMarker { x: s.brake_deadzone, label: "deadzone" },
-        CurveMarker { x: s.brake_bite_point, label: "bite" },
         CurveMarker { x: s.brake_wall_engage_at, label: "wall" },
     ]
 }
@@ -606,25 +599,43 @@ fn slider_f32(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) -> 
     ui.add(egui::Slider::new(v, lo..=hi).text(label)).changed()
 }
 
+fn shape_picker(ui: &mut egui::Ui, label: &str, value: &mut crate::settings::PedalShape) -> bool {
+    use crate::settings::PedalShape;
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        let current = PedalShape::ALL
+            .iter()
+            .find(|(v, _)| v == value)
+            .map(|(_, l)| *l)
+            .unwrap_or("?");
+        egui::ComboBox::from_id_salt(label)
+            .selected_text(current)
+            .show_ui(ui, |ui| {
+                for (variant, label) in PedalShape::ALL {
+                    if ui
+                        .selectable_label(*variant == *value, *label)
+                        .clicked()
+                    {
+                        *value = *variant;
+                        changed = true;
+                    }
+                }
+            });
+    });
+    changed
+}
+
 fn section_brake(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     let mut c = false;
     header(ui, "Brake (L2)");
     c |= ui.checkbox(&mut s.enable_brake_resistance, "Resistance").changed();
+    c |= shape_picker(ui, "Shape", &mut s.brake_shape);
+    c |= slider_u8(ui, "Min force", &mut s.brake_min_force, 0, 255);
+    c |= slider_u8(ui, "Max force", &mut s.brake_max_force, 0, 255);
     c |= slider_u8(ui, "Deadzone", &mut s.brake_deadzone, 0, 255);
-    c |= slider_u8(ui, "Baseline force", &mut s.brake_baseline_force, 0, 255);
-    c |= slider_u8(ui, "Bite point", &mut s.brake_bite_point, 0, 255);
-    c |= slider_u8(ui, "Bite force", &mut s.brake_bite_force, 0, 255);
-    c |= slider_u8(ui, "Stiffness (lockup)", &mut s.brake_max_force, 0, 255);
-    c |= slider_f32(ui, "Bite curve", &mut s.brake_curve, 0.5, 8.0);
     c |= slider_u8(ui, "Wall engage at", &mut s.brake_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.brake_wall_release_at, 0, 255);
-    ui.label(
-        RichText::new(
-            "Linear modulation up to the bite point, then a steep ramp to lockup — push past intentionally.",
-        )
-        .color(DIM)
-        .small(),
-    );
     c |= ui.checkbox(&mut s.enable_handbrake_bonus, "Handbrake bonus").changed();
     c |= slider_u8(ui, "Handbrake bonus force", &mut s.handbrake_bonus, 0, 255);
     c
@@ -653,8 +664,10 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     let mut c = false;
     header(ui, "Throttle (R2)");
     c |= ui.checkbox(&mut s.enable_throttle_resistance, "Resistance").changed();
+    c |= shape_picker(ui, "Shape", &mut s.throttle_shape);
+    c |= slider_u8(ui, "Min force", &mut s.throttle_min_force, 0, 255);
+    c |= slider_u8(ui, "Max force", &mut s.throttle_max_force, 0, 255);
     c |= slider_u8(ui, "Deadzone", &mut s.accel_deadzone, 0, 255);
-    c |= slider_u8(ui, "Stiffness", &mut s.throttle_stiffness, 0, 255);
     c |= slider_u8(ui, "Wall engage at", &mut s.throttle_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.throttle_wall_release_at, 0, 255);
     c

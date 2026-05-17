@@ -252,12 +252,10 @@
 const SETTINGS_GROUPS = [
   { title: "Brake (L2)", fields: [
     { k: "enable_brake_resistance", kind: "bool" },
-    { k: "brake_deadzone",         kind: "u8" },
-    { k: "brake_baseline_force",   kind: "u8" },
-    { k: "brake_bite_point",       kind: "u8" },
-    { k: "brake_bite_force",       kind: "u8" },
+    { k: "brake_shape",            kind: "shape" },
+    { k: "brake_min_force",        kind: "u8" },
     { k: "brake_max_force",        kind: "u8" },
-    { k: "brake_curve",            kind: "f32", lo: 0.5, hi: 8 },
+    { k: "brake_deadzone",         kind: "u8" },
     { k: "brake_wall_engage_at",   kind: "u8" },
     { k: "brake_wall_release_at",  kind: "u8" },
     { k: "enable_handbrake_bonus", kind: "bool" },
@@ -274,8 +272,10 @@ const SETTINGS_GROUPS = [
   ]},
   { title: "Throttle (R2)", fields: [
     { k: "enable_throttle_resistance", kind: "bool" },
+    { k: "throttle_shape",             kind: "shape" },
+    { k: "throttle_min_force",         kind: "u8" },
+    { k: "throttle_max_force",         kind: "u8" },
     { k: "accel_deadzone",             kind: "u8" },
-    { k: "throttle_stiffness",         kind: "u8" },
     { k: "throttle_wall_engage_at",    kind: "u8" },
     { k: "throttle_wall_release_at",   kind: "u8" },
   ]},
@@ -320,6 +320,16 @@ function renderSettings(settings) {
         inp.type = "checkbox";
         inp.checked = !!v;
         inp.addEventListener("change", () => mutate(f.k, inp.checked));
+      } else if (f.kind === "shape") {
+        inp = document.createElement("select");
+        for (const [variant, label] of PEDAL_SHAPES) {
+          const opt = document.createElement("option");
+          opt.value = variant;
+          opt.textContent = label;
+          if (variant === v) opt.selected = true;
+          inp.appendChild(opt);
+        }
+        inp.addEventListener("change", () => mutate(f.k, inp.value));
       } else {
         const lo = f.lo ?? (f.kind === "u8" ? 0 : 0);
         const hi = f.hi ?? (f.kind === "u8" ? 255 : 100);
@@ -379,34 +389,65 @@ async function refreshSettings() {
   suppressPost = false;
 }
 
-// ─── Force-curve math (mirrors src/controller.rs) ────────────────
-// Sample 128 points across the 0..255 trigger range and feed them
-// through the same piecewise math the Rust controller uses, so the SVG
-// preview here matches what the firmware actually applies.
-function brakeForceAt(v, s) {
-  const baseline = s.brake_baseline_force;
-  const deadzone = s.brake_deadzone;
-  if (v < deadzone) return baseline;
-  const bitePoint = Math.max(s.brake_bite_point, deadzone + 1);
-  const biteSpan = Math.max(bitePoint - deadzone, 1);
-  const biteForce = s.brake_bite_force;
-  if (v < bitePoint) {
-    const r = (v - deadzone) / biteSpan;
-    return baseline + (biteForce - baseline) * r;
+// ─── Force-curve math (mirrors src/settings.rs::PedalShape) ──────
+// Keep these functions in lock-step with PedalShape::apply on the
+// Rust side so the SVG preview is exactly what the firmware applies.
+// Tags use serde(rename_all = "snake_case").
+const PEDAL_SHAPES = [
+  ["constant",    "Constant (flat)"],
+  ["linear",      "Linear"],
+  ["ease_in",     "Ease in (light → heavy)"],
+  ["ease_out",    "Ease out (heavy fast → plateau)"],
+  ["ease_in_out", "Ease in-out (S-curve)"],
+  ["bell",        "Bell (light → heavy → light)"],
+  ["reverse",     "Reverse (heavy → light)"],
+];
+
+function shapeApply(shape, t) {
+  t = Math.max(0, Math.min(1, t));
+  switch (shape) {
+    case "constant":    return 1;
+    case "linear":      return t;
+    case "ease_in":     return t * t;
+    case "ease_out":    return 1 - Math.pow(1 - t, 2);
+    case "ease_in_out": return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    case "bell":        return 1 - Math.pow(2 * t - 1, 2);
+    case "reverse":     return 1 - t;
+    default:            return t;
   }
-  const wallAt = Math.max(s.brake_wall_engage_at, bitePoint + 1);
-  const wallSpan = Math.max(wallAt - bitePoint, 1);
-  const top = Math.min(v, wallAt);
-  const r = (top - bitePoint) / wallSpan;
-  return biteForce + (s.brake_max_force - biteForce) * Math.pow(r, s.brake_curve);
+}
+
+function pedalForce(v, deadzone, ceiling, min, max, shape) {
+  if (v <= deadzone) {
+    // Constant is flat across the whole range (including deadzone);
+    // every other shape sits at the floor below the deadzone.
+    return shape === "constant" ? max : min;
+  }
+  const span = Math.max(ceiling - deadzone, 1);
+  const t = Math.min((v - deadzone) / span, 1);
+  return min + (max - min) * shapeApply(shape, t);
+}
+
+function brakeForceAt(v, s) {
+  return pedalForce(
+    v,
+    s.brake_deadzone,
+    s.brake_wall_engage_at,
+    s.brake_min_force,
+    s.brake_max_force,
+    s.brake_shape,
+  );
 }
 
 function throttleForceAt(v, s) {
-  // Flat: constant stiffness above the deadzone. Real gas pedal springs
-  // are uniform, and a ramp here would just feel like fatigue creeping
-  // in as you held throttle. Wall is applied separately above
-  // throttle_wall_engage_at by the Rust controller.
-  return v >= s.accel_deadzone ? s.throttle_stiffness : 0;
+  return pedalForce(
+    v,
+    s.accel_deadzone,
+    s.throttle_wall_engage_at,
+    s.throttle_min_force,
+    s.throttle_max_force,
+    s.throttle_shape,
+  );
 }
 
 const CURVE_ACCENTS = { brake: "#ff5a64", throttle: "#50dc78" };
@@ -499,7 +540,6 @@ function render(snap) {
       brakeForceAt,
       [
         { x: s.brake_deadzone, label: "deadzone" },
-        { x: s.brake_bite_point, label: "bite" },
         { x: s.brake_wall_engage_at, label: "wall" },
       ],
       CURVE_ACCENTS.brake,

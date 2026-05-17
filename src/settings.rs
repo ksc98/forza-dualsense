@@ -1,5 +1,68 @@
 use serde::{Deserialize, Serialize};
 
+/// Pedal force "shape" — how the applied resistance varies with how
+/// far the trigger is pressed. Each variant maps a normalised press
+/// `t ∈ [0, 1]` to a normalised force `y ∈ [0, 1]`, which is then
+/// scaled by the pedal's `min_force..max_force` envelope.
+///
+/// Pick the shape that matches the feel you want; both pedals expose
+/// the full list so you can mix and match (e.g. flat throttle + bell
+/// brake).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PedalShape {
+    /// Same force across the full press. Min force is ignored.
+    Constant,
+    /// Force grows linearly with press.
+    #[default]
+    Linear,
+    /// Slow build at the bottom, steep ramp at the top. The old
+    /// "bite zone" feel.
+    EaseIn,
+    /// Heavy quickly, then plateaus.
+    EaseOut,
+    /// S-curve: gentle at the extremes, steep through the middle.
+    EaseInOut,
+    /// Peaks at mid-travel and tapers off again.
+    Bell,
+    /// Heavy at the start, lighter as you press through.
+    Reverse,
+}
+
+impl PedalShape {
+    /// `(variant, display label)` for every shape, in the order they
+    /// appear in the GUI dropdown.
+    pub const ALL: &'static [(PedalShape, &'static str)] = &[
+        (PedalShape::Constant, "Constant (flat)"),
+        (PedalShape::Linear, "Linear"),
+        (PedalShape::EaseIn, "Ease in (light → heavy)"),
+        (PedalShape::EaseOut, "Ease out (heavy fast → plateau)"),
+        (PedalShape::EaseInOut, "Ease in-out (S-curve)"),
+        (PedalShape::Bell, "Bell (light → heavy → light)"),
+        (PedalShape::Reverse, "Reverse (heavy → light)"),
+    ];
+
+    /// Map normalised press `t ∈ [0, 1]` to normalised force `[0, 1]`.
+    pub fn apply(self, t: f32) -> f32 {
+        let t = t.clamp(0.0, 1.0);
+        match self {
+            PedalShape::Constant => 1.0,
+            PedalShape::Linear => t,
+            PedalShape::EaseIn => t * t,
+            PedalShape::EaseOut => 1.0 - (1.0 - t).powi(2),
+            PedalShape::EaseInOut => {
+                if t < 0.5 {
+                    2.0 * t * t
+                } else {
+                    1.0 - (-2.0 * t + 2.0).powi(2) / 2.0
+                }
+            }
+            PedalShape::Bell => 1.0 - (2.0 * t - 1.0).powi(2),
+            PedalShape::Reverse => 1.0 - t,
+        }
+    }
+}
+
 /// All tunables in one place. Forces 0-255, frequencies in Hz.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -13,20 +76,15 @@ pub struct Settings {
 
     // --- L2: Brake ---
     //
-    // The brake trigger uses a piecewise force curve:
-    //   * 0..deadzone:            no contact, baseline force only
-    //   * deadzone..bite_point:   linear modulation — real pedal feel
-    //   * bite_point..wall_at:    steep ramp toward `max_force` — the
-    //                              "bite" zone you have to mean to push
-    //                              through (mimics anti-lock onset)
-    //   * wall_at..:              rigid wall, full lock-up
+    // Force = `brake_min_force + (brake_max_force - brake_min_force) *
+    //          brake_shape(t)` where `t` is the normalised press from
+    // `brake_deadzone` to `brake_wall_engage_at`. Above
+    // `brake_wall_engage_at` the rigid wall effect takes over.
     pub enable_brake_resistance: bool,
     pub brake_deadzone: u8,
-    pub brake_baseline_force: u8,
-    pub brake_bite_point: u8,
-    pub brake_bite_force: u8,
+    pub brake_shape: PedalShape,
+    pub brake_min_force: u8,
     pub brake_max_force: u8,
-    pub brake_curve: f32,
     pub brake_wall_engage_at: u8,
     pub brake_wall_release_at: u8,
 
@@ -44,12 +102,9 @@ pub struct Settings {
     // --- R2: Throttle ---
     pub enable_throttle_resistance: bool,
     pub accel_deadzone: u8,
-    /// Single linear-stiffness control for the throttle. Force at the
-    /// wall edge equals this value; below the wall it ramps linearly
-    /// from 0 at the deadzone. A real gas pedal is linear — one knob
-    /// matches the mental model and avoids fatigue from sustained
-    /// non-linear top-end force.
-    pub throttle_stiffness: u8,
+    pub throttle_shape: PedalShape,
+    pub throttle_min_force: u8,
+    pub throttle_max_force: u8,
     pub throttle_wall_engage_at: u8,
     pub throttle_wall_release_at: u8,
 
@@ -81,14 +136,11 @@ impl Default for Settings {
 
             enable_brake_resistance: true,
             brake_deadzone: 10,
-            brake_baseline_force: 5,
-            // At ~80% physical press the player should feel ~50% of the
-            // lockup force — slow linear build, then a steep curved
-            // ramp to full stiffness over the final 20% of travel.
-            brake_bite_point: 204,
-            brake_bite_force: 100,
+            // Ease-in mimics the old "slow build, then steep bite zone"
+            // feel — gentle through mid-travel, ramping hard at the top.
+            brake_shape: PedalShape::EaseIn,
+            brake_min_force: 5,
             brake_max_force: 200,
-            brake_curve: 2.5,
             brake_wall_engage_at: 250,
             brake_wall_release_at: 220,
 
@@ -105,10 +157,13 @@ impl Default for Settings {
 
             enable_throttle_resistance: true,
             accel_deadzone: 50,
-            throttle_stiffness: 30,
+            // Real gas pedals are constant-tension springs. Default to
+            // Constant; switch to Linear / EaseIn / Bell etc. for feel.
+            throttle_shape: PedalShape::Constant,
+            throttle_min_force: 0,
+            throttle_max_force: 30,
             throttle_wall_engage_at: 250,
             throttle_wall_release_at: 200,
-
 
             enable_gear_shift: false,
             enable_gear_shift_brake: true,
