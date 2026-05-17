@@ -111,7 +111,10 @@ async fn ws_handler(State(ctx): State<AppCtx>, ws: WebSocketUpgrade) -> Response
 }
 
 async fn handle_ws(mut socket: WebSocket, ctx: AppCtx) {
-    let mut interval = tokio::time::interval(Duration::from_millis(33));
+    // 120 Hz — matches the GUI's repaint rate so the web curve cursor
+    // updates as quickly as the native one. The HID worker reads the
+    // controller at 250 Hz so the data is already fresher than this.
+    let mut interval = tokio::time::interval(Duration::from_millis(8));
     loop {
         interval.tick().await;
         let payload = {

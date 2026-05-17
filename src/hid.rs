@@ -117,22 +117,36 @@ impl DualSense {
         self.transport
     }
 
-    /// Non-blocking peek at the latest HID input report. Returns
-    /// `(L2, R2)` analog values 0..255 when a fresh report is waiting,
-    /// `None` otherwise. Used by the idle-preview path so the user
-    /// feels actual physical presses instead of a synthesised value.
+    /// Latest analog `(L2, R2)` press from the controller's HID input
+    /// reports, or `None` if no report has arrived since the last call.
+    /// Drains every queued report (controllers stream at ~250 Hz; if
+    /// the GUI thread stalls briefly, reports back up in the kernel
+    /// buffer) and returns the freshest one so the live cursor never
+    /// shows a stale value.
     ///
     /// Layouts:
     ///   USB report 0x01: byte 5 = L2, byte 6 = R2.
-    ///   BT  report 0x31: same payload prefixed with [id, seq], so
+    ///   BT  report 0x31: same payload prefixed with `[id, seq]`, so
     ///                    byte 6 = L2, byte 7 = R2.
     pub fn read_inputs(&self) -> Option<(u8, u8)> {
         let mut buf = [0u8; 78];
-        let n = self.device.read_timeout(&mut buf, 0).ok()?;
-        match self.transport {
-            Transport::Usb if n >= 7 && buf[0] == 0x01 => Some((buf[5], buf[6])),
-            Transport::Bluetooth if n >= 8 && buf[0] == 0x31 => Some((buf[6], buf[7])),
-            _ => None,
+        let mut latest = None;
+        loop {
+            match self.device.read_timeout(&mut buf, 0) {
+                Ok(n) if n > 0 => {
+                    let parsed = match self.transport {
+                        Transport::Usb if n >= 7 && buf[0] == 0x01 => Some((buf[5], buf[6])),
+                        Transport::Bluetooth if n >= 8 && buf[0] == 0x31 => {
+                            Some((buf[6], buf[7]))
+                        }
+                        _ => None,
+                    };
+                    if parsed.is_some() {
+                        latest = parsed;
+                    }
+                }
+                _ => return latest,
+            }
         }
     }
 

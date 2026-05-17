@@ -111,7 +111,11 @@ impl eframe::App for GuiApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
-        ctx.request_repaint_after(std::time::Duration::from_millis(33));
+        // 120 Hz redraw so the live trigger cursor on the curve graphs
+        // tracks the player's press without visible lag. The HID worker
+        // already polls the controller at 250 Hz, so we're not making
+        // up data — just rendering it as fast as the display can take.
+        ctx.request_repaint_after(std::time::Duration::from_millis(8));
 
         #[cfg(windows)]
         if let Some(tray) = &self.tray {
