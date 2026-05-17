@@ -275,7 +275,7 @@ const SETTINGS_GROUPS = [
   { title: "Throttle (R2)", fields: [
     { k: "enable_throttle_resistance", kind: "bool" },
     { k: "accel_deadzone",             kind: "u8" },
-    { k: "throttle_stiffness",         kind: "u8", lo: 0, hi: 60 },
+    { k: "throttle_stiffness",         kind: "u8" },
     { k: "throttle_wall_engage_at",    kind: "u8" },
     { k: "throttle_wall_release_at",   kind: "u8" },
   ]},
@@ -414,12 +414,11 @@ function brakeForceAt(v, s) {
 }
 
 function throttleForceAt(v, s) {
-  const deadzone = s.accel_deadzone;
-  if (v < deadzone) return 0;
-  const ceiling = s.throttle_wall_engage_at;
-  const span = Math.max(ceiling - deadzone, 1);
-  const r = Math.min((v - deadzone) / span, 1);
-  return s.throttle_stiffness * r; // linear; curve=1.0
+  // Flat: constant stiffness above the deadzone. Real gas pedal springs
+  // are uniform, and a ramp here would just feel like fatigue creeping
+  // in as you held throttle. Wall is applied separately above
+  // throttle_wall_engage_at by the Rust controller.
+  return v >= s.accel_deadzone ? s.throttle_stiffness : 0;
 }
 
 const CURVE_ACCENTS = { brake: "#ff5a64", throttle: "#50dc78" };

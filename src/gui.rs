@@ -403,14 +403,11 @@ fn curves_section(ui: &mut egui::Ui, snap: &SnapshotForUi) {
             card_w,
             snap.live_r2,
             |v| {
-                crate::controller::ramp(
-                    v,
-                    snap.settings.accel_deadzone,
-                    0,
-                    snap.settings.throttle_stiffness,
-                    1.0,
-                    snap.settings.throttle_wall_engage_at,
-                )
+                if v >= snap.settings.accel_deadzone {
+                    snap.settings.throttle_stiffness as f32
+                } else {
+                    0.0
+                }
             },
             &throttle_markers(&snap.settings),
         );
@@ -657,7 +654,7 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings) -> bool {
     header(ui, "Throttle (R2)");
     c |= ui.checkbox(&mut s.enable_throttle_resistance, "Resistance").changed();
     c |= slider_u8(ui, "Deadzone", &mut s.accel_deadzone, 0, 255);
-    c |= slider_u8(ui, "Stiffness", &mut s.throttle_stiffness, 0, 60);
+    c |= slider_u8(ui, "Stiffness", &mut s.throttle_stiffness, 0, 255);
     c |= slider_u8(ui, "Wall engage at", &mut s.throttle_wall_engage_at, 0, 255);
     c |= slider_u8(ui, "Wall release at", &mut s.throttle_wall_release_at, 0, 255);
     c

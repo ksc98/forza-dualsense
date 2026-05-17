@@ -118,7 +118,7 @@ impl Default for Settings {
 
             enable_throttle_resistance: true,
             accel_deadzone: 50,
-            throttle_stiffness: 6,
+            throttle_stiffness: 30,
             throttle_wall_engage_at: 250,
             throttle_wall_release_at: 200,
 

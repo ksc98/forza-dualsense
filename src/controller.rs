@@ -29,15 +29,6 @@ pub struct TriggerAnimations {
     rev_until: Option<Instant>,
 }
 
-pub(crate) fn ramp(value: u8, deadzone: u8, baseline: u8, max_force: u8, curve: f32, ceiling: u8) -> f32 {
-    if value < deadzone {
-        return baseline as f32;
-    }
-    let span = (ceiling.saturating_sub(deadzone)).max(1) as f32;
-    let r = (((value - deadzone) as f32) / span).min(1.0);
-    baseline as f32 + (max_force as f32 - baseline as f32) * r.powf(curve)
-}
-
 /// Piecewise brake-pedal force curve. The lower segment is linear so
 /// the player can modulate just like a real pedal; the upper segment
 /// ramps steeply to `max_force` so the lock-up zone takes deliberate
@@ -155,14 +146,16 @@ impl TriggerAnimations {
         if !s.enable_throttle_resistance {
             return Effect::Off;
         }
-        Effect::rigid(ramp(
-            t.accel,
-            s.accel_deadzone,
-            0,
-            s.throttle_stiffness,
-            1.0,
-            s.throttle_wall_engage_at,
-        ))
+        // Throttle is a flat constant force above the deadzone — a real
+        // gas pedal has a uniform spring all the way through, not a
+        // ramp. The wall effect at `throttle_wall_engage_at` is handled
+        // separately by `r2()`.
+        let force = if t.accel >= s.accel_deadzone {
+            s.throttle_stiffness as f32
+        } else {
+            0.0
+        };
+        Effect::rigid(force)
     }
 }
 
