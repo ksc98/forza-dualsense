@@ -639,7 +639,12 @@ fn slider_f32(ui: &mut egui::Ui, label: &str, v: &mut f32, lo: f32, hi: f32) -> 
     ui.add(egui::Slider::new(v, lo..=hi).text(label)).changed()
 }
 
-fn shape_picker(ui: &mut egui::Ui, label: &str, value: &mut crate::settings::PedalShape) -> bool {
+fn shape_picker(
+    ui: &mut egui::Ui,
+    id_salt: &str,
+    label: &str,
+    value: &mut crate::settings::PedalShape,
+) -> bool {
     use crate::settings::PedalShape;
     let mut changed = false;
     ui.horizontal(|ui| {
@@ -649,7 +654,7 @@ fn shape_picker(ui: &mut egui::Ui, label: &str, value: &mut crate::settings::Ped
             .find(|(v, _)| v == value)
             .map(|(_, l)| *l)
             .unwrap_or("?");
-        egui::ComboBox::from_id_salt(label)
+        egui::ComboBox::from_id_salt(id_salt)
             .selected_text(current)
             .show_ui(ui, |ui| {
                 for (variant, label) in PedalShape::ALL {
@@ -670,7 +675,7 @@ fn section_brake(ui: &mut egui::Ui, s: &mut Settings, peak: u8) -> bool {
     let mut c = false;
     header(ui, "Brake (L2)");
     c |= ui.checkbox(&mut s.enable_brake_resistance, "Resistance").changed();
-    c |= shape_picker(ui, "Shape", &mut s.brake_shape);
+    c |= shape_picker(ui, "brake_shape", "Shape", &mut s.brake_shape);
     c |= slider_u8(ui, "Min force", &mut s.brake_min_force, 0, 255);
     c |= slider_u8(ui, "Max force", &mut s.brake_max_force, 0, 255);
     c |= slider_u8(ui, "Deadzone", &mut s.brake_deadzone, 0, 255);
@@ -710,7 +715,7 @@ fn section_throttle(ui: &mut egui::Ui, s: &mut Settings, peak: u8) -> bool {
     let mut c = false;
     header(ui, "Throttle (R2)");
     c |= ui.checkbox(&mut s.enable_throttle_resistance, "Resistance").changed();
-    c |= shape_picker(ui, "Shape", &mut s.throttle_shape);
+    c |= shape_picker(ui, "throttle_shape", "Shape", &mut s.throttle_shape);
     c |= slider_u8(ui, "Min force", &mut s.throttle_min_force, 0, 255);
     c |= slider_u8(ui, "Max force", &mut s.throttle_max_force, 0, 255);
     c |= slider_u8(ui, "Deadzone", &mut s.accel_deadzone, 0, 255);
